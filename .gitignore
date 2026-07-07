@@ -1,0 +1,64 @@
+# Vivado project files (generated)
+*.xpr
+*.prj
+
+# Vivado generated directories
+*.cache/
+*.runs/
+*.hw/
+*.sim/
+*.ip_user_files/
+*.jou
+*.log
+*.pb
+*.dcp
+*.rpt
+*.vds
+*.vdi
+*.rpx
+*.wdb
+*.wdf
+*.webtalk*
+
+# Vivado queue files
+*.queue.rst
+*.begin.rst
+*.end.rst
+*.error.rst
+
+# XSIM simulation
+xsim/
+*.vlog.prj
+compile.bat
+compile.log
+run_test.bat
+xsim_*.log
+xsim_*.jou
+xsim_*.backup.*
+xsim.ini
+xvlog.pb
+xsim_out.txt
+
+# Project-wide build artifacts
+project.wpc
+gen_run.xml
+htr.txt
+dfx_runtime.txt
+ISEWrap.sh
+ISEWrap.js
+runme.bat
+runme.sh
+runme.log
+rundef.js
+
+# Temporary files
+*.tmp
+*.bak
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Keep source files
+!.gitkeep
