@@ -1,0 +1,17 @@
+0.7
+2020.2
+Mar 19 2026
+19:50:51
+C:/Users/teruc/Desktop/programs/vivado/rv32imafc/rv32imafc.src/sources_1/alu.sv,1783145903,systemVerilog,,C:/Users/teruc/Desktop/programs/vivado/rv32imafc/rv32imafc.src/sources_1/csr.sv,,alu,,,,,,,,
+C:/Users/teruc/Desktop/programs/vivado/rv32imafc/rv32imafc.src/sources_1/csr.sv,1783443796,systemVerilog,,C:/Users/teruc/Desktop/programs/vivado/rv32imafc/rv32imafc.src/sources_1/ex.sv,,csr_reg,,,,,,,,
+C:/Users/teruc/Desktop/programs/vivado/rv32imafc/rv32imafc.src/sources_1/ex.sv,1783515052,systemVerilog,,C:/Users/teruc/Desktop/programs/vivado/rv32imafc/rv32imafc.src/sources_1/id.sv,,ex_stage,,,,,,,,
+C:/Users/teruc/Desktop/programs/vivado/rv32imafc/rv32imafc.src/sources_1/id.sv,1783449518,systemVerilog,,C:/Users/teruc/Desktop/programs/vivado/rv32imafc/rv32imafc.src/sources_1/if.sv,,id_stage,,,,,,,,
+C:/Users/teruc/Desktop/programs/vivado/rv32imafc/rv32imafc.src/sources_1/if.sv,1783500371,systemVerilog,,C:/Users/teruc/Desktop/programs/vivado/rv32imafc/rv32imafc.src/sources_1/instr_ram.sv,,if_stage,,,,,,,,
+C:/Users/teruc/Desktop/programs/vivado/rv32imafc/rv32imafc.src/sources_1/instr_ram.sv,1783443866,systemVerilog,,C:/Users/teruc/Desktop/programs/vivado/rv32imafc/rv32imafc.src/sources_1/main.sv,,instr_ram,,,,,,,,
+C:/Users/teruc/Desktop/programs/vivado/rv32imafc/rv32imafc.src/sources_1/main.sv,1783416819,systemVerilog,,C:/Users/teruc/Desktop/programs/vivado/rv32imafc/rv32imafc.src/sources_1/mem.sv,,main,,,,,,,,
+C:/Users/teruc/Desktop/programs/vivado/rv32imafc/rv32imafc.src/sources_1/mem.sv,1783500293,systemVerilog,,C:/Users/teruc/Desktop/programs/vivado/rv32imafc/rv32imafc.src/sources_1/reg.sv,,mem_stage,,,,,,,,
+C:/Users/teruc/Desktop/programs/vivado/rv32imafc/rv32imafc.src/sources_1/reg.sv,1783425471,systemVerilog,,C:/Users/teruc/Desktop/programs/vivado/rv32imafc/rv32imafc.src/sources_1/tb.sv,,reg_file,,,,,,,,
+C:/Users/teruc/Desktop/programs/vivado/rv32imafc/rv32imafc.src/sources_1/tb.sv,1783514776,systemVerilog,,C:/Users/teruc/Desktop/programs/vivado/rv32imafc/rv32imafc.src/sources_1/top.sv,,tb,,,,,,,,
+C:/Users/teruc/Desktop/programs/vivado/rv32imafc/rv32imafc.src/sources_1/top.sv,1783500332,systemVerilog,,C:/Users/teruc/Desktop/programs/vivado/rv32imafc/rv32imafc.src/sources_1/unified_bram.sv,,top,,,,,,,,
+C:/Users/teruc/Desktop/programs/vivado/rv32imafc/rv32imafc.src/sources_1/unified_bram.sv,1783508487,systemVerilog,,C:/Users/teruc/Desktop/programs/vivado/rv32imafc/rv32imafc.src/sources_1/wb.sv,,unified_bram,,,,,,,,
+C:/Users/teruc/Desktop/programs/vivado/rv32imafc/rv32imafc.src/sources_1/wb.sv,1783419822,systemVerilog,,,,wb_stage,,,,,,,,
