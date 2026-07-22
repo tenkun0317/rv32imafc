@@ -4,7 +4,7 @@ module main;
     logic        rst_n;
 
     logic [31:0] a, b, result;
-    logic [4:0]  alu_op;
+    logic [5:0]  alu_op;
     logic        zero, lt, ltu;
 
     alu u_alu (.a(a), .b(b), .alu_op(alu_op), .result(result), .zero(zero), .lt(lt), .ltu(ltu));

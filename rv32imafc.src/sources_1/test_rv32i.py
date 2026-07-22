@@ -1,12 +1,13 @@
 import sys, os, subprocess, re, random, ctypes
 
-SRC_DIR = r'C:\Users\teruc\Desktop\programs\vivado\rv32imafc\rv32imafc.src\sources_1'
-PROJ_DIR = r'C:\Users\teruc\Desktop\programs\vivado\rv32imafc'
+SRC_DIR = r'D:\Desktop\programs\vivado\rv32imafc\rv32imafc.src\sources_1'
+PROJ_DIR = r'D:\Desktop\programs\vivado\rv32imafc'
 
 def sv_files():
     return [os.path.join(SRC_DIR, f) for f in
-            ['alu.sv','reg.sv','csr.sv','instr_ram.sv','unified_bram.sv',
-             'if.sv','id.sv','ex.sv','mem.sv','wb.sv','top.sv','tb.sv']]
+            ['alu.sv','reg.sv','csr.sv','unified_bram.sv',
+             'if.sv','id.sv','ex.sv','mem.sv','wb.sv','top.sv',
+             'div.sv','mul.sv','tb.sv']]
 
 def xsim_bin(name):
     return rf'E:\AMDDesignTools\2025.2.1\Vivado\bin\{name}.bat'
@@ -96,6 +97,7 @@ class TestBuilder:
         if extra:
             full.extend(extra)
         full.append('ebreak')
+        full.append('jal x0, 0')
         return assemble_labels('\n'.join(full))
 
 # ── Test generators ───────────────────────────────────────────
@@ -160,12 +162,13 @@ def gen_utype(builder):
         test_id = len(builder.cases)
         # PC placeholder: we compute it from the instruction count
         pc = builder._instr_count * 4
-        exp = (pc + (v << 12)) & 0xffffffff
+        # CPU runs at 0x80000000-based PC
+        exp = (0x80000000 + pc + (v << 12)) & 0xffffffff
         builder.add(f'auipc(0x{v:X})', exp, lines)
 
 def gen_load_store(builder):
     rid = lambda: len(builder.cases)*4
-    data_base = 0x400
+    data_base = 0x1000   # above code area (code occupies 0..end-of-program)
 
     test_vals = [
         0x12345678, 0x00000000, 0xFFFFFFFF, 0xDEADBEEF,
@@ -261,7 +264,7 @@ def gen_hazard(builder):
 
 def gen_load_use(builder):
     rid = lambda: len(builder.cases)*4
-    data_base = 0x500
+    data_base = 0x1000   # above code area
 
     for val in [0x12345678, 0xA5A5A5A5, 0x00000001, 0xFFFFFFFF]:
         daddr = data_base + len(builder.cases) * 4
@@ -389,9 +392,9 @@ def gen_csr(builder):
 
     # ── Immediate variants on mtvec (0x305) ──
     # csrrsi with rs1=x0 = csrr (read without modifying)
-    # mtvec init = 0
+    # mtvec init = 0x80000000 (set by csr reset)
     lines = ['csrr x7, 0x305', f'sw x7, {rid()}(x0)']
-    builder.add('csrr_mtvec_init', 0, lines)
+    builder.add('csrr_mtvec_init', 0x80000000, lines)
 
     # csrrwi: write immediate, verify
     for uimm in [0x05, 0x1F, 0x00]:
@@ -536,7 +539,8 @@ def main():
             m = case.name.split('(0x')
             imm_val = int(m[1].rstrip(')'), 16) if len(m) > 1 else 0
             pc = case.code_idx * 4
-            case.expected = (pc + (imm_val << 12)) & 0xffffffff
+            # CPU runs at 0x80000000-based PC
+            case.expected = (0x80000000 + pc + (imm_val << 12)) & 0xffffffff
 
     print("Compiling (once)...", flush=True)
     if not ensure_compiled():

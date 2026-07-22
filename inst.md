@@ -19,6 +19,10 @@
 | `0000111` | LOAD-FP | FP ロード (F) |
 | `0100111` | STORE-FP | FP ストア (F) |
 | `1010011` | OP-FP | FP 演算 (F) |
+| `1000011` | FMADD | FP 乗算加算 (F) |
+| `1000111` | FMSUB | FP 乗算減算 (F) |
+| `1001011` | FNMSUB | FP 乗算符号反転減算 (F) |
+| `1001111` | FNMADD | FP 乗算符号反転加算 (F) |
 
 ## ロード命令 (I形式) — opcode = `0000011`
 
@@ -63,9 +67,9 @@
 | XORI | `100`  | — | 即値排他的論理和 |
 | ORI  | `110`  | — | 即値論理和 |
 | ANDI | `111`  | — | 即値論理積 |
-| SLLI | `001`  | funct7=`0000000`, imm[11:5]=`00000` | 即値論理左シフト (shamt[4:0]) |
-| SRLI | `101`  | funct7=`0000000`, imm[11:5]=`00000` | 即値論理右シフト (shamt[4:0]) |
-| SRAI | `101`  | funct7=`0100000`, imm[11:5]=`00000` | 即値算術右シフト (shamt[4:0]) |
+| SLLI | `001`  | funct7=`0000000`, imm[11:5]=`0000000` | 即値論理左シフト (shamt[4:0]) |
+| SRLI | `101`  | funct7=`0000000`, imm[11:5]=`0000000` | 即値論理右シフト (shamt[4:0]) |
+| SRAI | `101`  | funct7=`0100000`, imm[11:5]=`0000000` | 即値算術右シフト (shamt[4:0]) |
 
 > SLLI/SRLI/SRAI では imm[11:5] は `00000` 固定。即値の代わりに shamt[4:0] (imm[4:0]) を使用。
 
@@ -185,19 +189,19 @@ funct5  | aq | rl | rs2  | rs1   | funct3 | rd    | opcode
 
 > ※ rm (rounding mode): bits 14:12 = `000`(RNE) `001`(RTZ) `010`(RDN) `011`(RUP) `100`(RMM) `111`(dyn). FSGNJ/FMIN/FMAX では funct3 として動作。
 
-### FMA (R4形式) — opcode = `1010011`
+### FMA (R4形式)
 
 ```
 31:27   26:25   24:20   19:15   14:12   11:7    6:0
 rs3    | fmt=00 | rs2   | rs1   | rm     | rd    | opcode
 ```
 
-| 命令 | rs3 | 説明 |
-|------|:---:|------|
-| FMADD.S   | 乗数 | $\text{rd} = \text{rs1} \times \text{rs2} + \text{rs3}$ |
-| FMSUB.S   | 乗数 | $\text{rd} = \text{rs1} \times \text{rs2} - \text{rs3}$ |
-| FNMSUB.S  | 乗数 | $\text{rd} = -(\text{rs1} \times \text{rs2}) + \text{rs3}$ |
-| FNMADD.S  | 乗数 | $\text{rd} = -(\text{rs1} \times \text{rs2}) - \text{rs3}$ |
+| 命令 | opcode | rs3 | 説明 |
+|------|:------:|:---:|------|
+| FMADD.S   | `1000011` | 乗数 | $\text{rd} = \text{rs1} \times \text{rs2} + \text{rs3}$ |
+| FMSUB.S   | `1000111` | 乗数 | $\text{rd} = \text{rs1} \times \text{rs2} - \text{rs3}$ |
+| FNMSUB.S  | `1001011` | 乗数 | $\text{rd} = -(\text{rs1} \times \text{rs2}) + \text{rs3}$ |
+| FNMADD.S  | `1001111` | 乗数 | $\text{rd} = -(\text{rs1} \times \text{rs2}) - \text{rs3}$ |
 
 ### FP 比較 — opcode = `1010011`, funct7 = `1010000`
 
@@ -252,14 +256,16 @@ rs3    | fmt=00 | rs2   | rs1   | rm     | rd    | opcode
 
 | funct3 | 命令 | 形式 | RV32C | 説明 |
 |:------:|------|:----:|:-----:|------|
-| `000` | C.ADDI4SPN | CIW | ○ | rd' = sp + nzuimm (nzuimm≠0) |
-| `001` | C.FLW | CL | ○(F) | rd' = float Mem[rs1'+uimm] |
-| `010` | C.LW | CL | ○ | rd' = Mem[rs1'+uimm] |
+| `000` | C.ADDI4SPN | CIW | ○ | rd' = sp + nzuimm (nzuimm≠0, **4の倍数, 10bit**) |
+| `001` | C.FLW | CL | ○(F) | rd' = float Mem[rs1'+uimm] (**4の倍数, 7bit**) |
+| `010` | C.LW | CL | ○ | rd' = Mem[rs1'+uimm] (**4の倍数, 7bit**) |
+| `011` | C.FLD / C.LD | CL | ○(D/RV64) | rd' = Mem[rs1'+uimm] (**8の倍数, 8bit**) |
 | `100` | reserved | — | — | — |
-| `101` | C.FSW | CS | ○(F) | Mem[rs1'+uimm] = rs2' float |
-| `110` | C.SW | CS | ○ | Mem[rs1'+uimm] = rs2' |
+| `101` | C.FSW | CS | ○(F) | Mem[rs1'+uimm] = rs2' float (**4の倍数, 7bit**) |
+| `110` | C.SW | CS | ○ | Mem[rs1'+uimm] = rs2' (**4の倍数, 7bit**) |
+| `111` | C.FSD / C.SD | CS | ○(D/RV64) | Mem[rs1'+uimm] = rs2' (**8の倍数, 8bit**) |
 
-> rd'/rs1'/rs2' は x8–x15 に対応 (3bit レジスタ指定 + 8)。
+> rd'/rs1'/rs2' は x8–x15 に対応 (3bit レジスタ指定 + 8)。ABI 名では s0–s1, a0–a5 に相当。
 
 ### Quadrant 1 (bits[1:0] = `01`)
 
@@ -270,7 +276,8 @@ rs3    | fmt=00 | rs2   | rs1   | rm     | rd    | opcode
 | `000` | C.ADDI | CI | ○ | rd = rd + nzimm; rd=x0 → C.NOP |
 | `001` | C.JAL | CJ | ○(RV32) | x1 = PC+2, PC += offset |
 | `010` | C.LI | CI | ○ | rd = imm (rd≠x0) |
-| `011` | C.ADDI16SP | CI | ○ | sp = sp + imm (rd=x2) |
+| `011` | C.ADDI16SP | CI | ○ | sp = sp + imm (rd=x2, nzimm≠0, **16の倍数, 10bit符号付き**) |
+| `011` | C.LUI | CI | ○ | rd = imm << 12 (rd≠x0, x2, nzimm≠0, **12bit即値**) |
 | `100` | 下記参照 | — | ○ | 演算系命令群 |
 | `101` | C.J | CJ | ○ | PC += offset |
 | `110` | C.BEQZ | CB | ○ | if (rs1' == 0) PC += offset |
@@ -304,11 +311,13 @@ bits[12:10]=`11` の拡張:
 | funct3 | 命令 | 形式 | RV32C | 説明 |
 |:------:|------|:----:|:-----:|------|
 | `000` | C.SLLI | CI | ○ | rd = rd << shamt (shamt[5]=0) |
-| `001` | C.FLWSP | CI | ○(F) | rd = float Mem[sp+uimm] (rd≠x0) |
-| `010` | C.LWSP | CI | ○ | rd = Mem[sp+uimm] (rd≠x0) |
+| `001` | C.FLWSP | CI | ○(F) | rd = float Mem[sp+uimm] (rd≠x0, **4の倍数, 8bit**) |
+| `010` | C.LWSP | CI | ○ | rd = Mem[sp+uimm] (rd≠x0, **4の倍数, 8bit**) |
+| `011` | C.FLDSP / C.LDSP | CI | ○(D/RV64) | rd = Mem[sp+uimm] (**8の倍数, 8bit**) |
 | `100` | 下記参照 | CR | ○ | レジスタ間操作 |
-| `101` | C.FSWSP | CSS | ○(F) | Mem[sp+uimm] = rs2 float |
-| `110` | C.SWSP | CSS | ○ | Mem[sp+uimm] = rs2 |
+| `101` | C.FSWSP | CSS | ○(F) | Mem[sp+uimm] = rs2 float (**4の倍数, 8bit**) |
+| `110` | C.SWSP | CSS | ○ | Mem[sp+uimm] = rs2 (**4の倍数, 8bit**) |
+| `111` | C.FSDSP / C.SDSP | CSS | ○(D/RV64) | Mem[sp+uimm] = rs2 (**8の倍数, 8bit**) |
 
 funct3=`100` の拡張:
 
@@ -348,7 +357,7 @@ CSS:   15:13   12:7    6:2    1:0
       | funct3 | imm   | rs2  | 10 |
 
 CA:    15:13   12    11:10   9:7    6:5    4:2    1:0
-      | funct3 | 1   | funct2| rs1' | funct | rs2' | 01 |
+       | funct3 | 1   | funct2| rs1' | funct2| rs2' | 01 |
 ```
 
 ## 疑似命令
@@ -383,3 +392,44 @@ R4形式: | rs3   | fmt   | rs2    | rs1    | rm     | rd     | opcode |
 | B | `imm[12|10:5]` → 31:25, `imm[4:1|11]` → 11:7 (13bit 符号付き, LSB=0) |
 | U | `imm[31:12]` → 31:12 (32bit, 下位12bit=0) |
 | J | `imm[20|10:1|11|19:12]` → 31:12 (21bit 符号付き, LSB=0) |
+
+#### 即値ビット対応表
+
+**I形式 (imm[11:0]):**
+
+| 生成即値ビット | 命令ビット | 備考 |
+|:-------------:|-----------|------|
+| `imm[11:0]` | `inst[31:20]` | 符号拡張 |
+
+**S形式 (imm[11:0]):**
+
+| 生成即値ビット | 命令ビット |
+|:-------------:|-----------|
+| `imm[11:5]` | `inst[31:25]` |
+| `imm[4:0]` | `inst[11:7]` |
+
+**U形式 (imm[31:12]):**
+
+| 生成即値ビット | 命令ビット | 備考 |
+|:-------------:|-----------|------|
+| `imm[31:12]` | `inst[31:12]` | 下位12bitは0で埋める |
+
+**B形式 (imm[12:1]):**
+
+| 生成即値ビット | 命令ビット |
+|:-------------:|-----------|
+| `imm[12]` | `inst[31]` |
+| `imm[11]` | `inst[7]` |
+| `imm[10:5]` | `inst[30:25]` |
+| `imm[4:1]` | `inst[11:8]` |
+| `imm[0]` | `0` (常に0) |
+
+**J形式 (imm[20:1]):**
+
+| 生成即値ビット | 命令ビット |
+|:-------------:|-----------|
+| `imm[20]` | `inst[31]` |
+| `imm[19:12]` | `inst[19:12]` |
+| `imm[11]` | `inst[20]` |
+| `imm[10:1]` | `inst[30:21]` |
+| `imm[0]` | `0` (常に0) |

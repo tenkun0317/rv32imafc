@@ -28,6 +28,8 @@
 
 # XSIM simulation
 xsim/
+xsim.*/
+xsim.dir/
 *.vlog.prj
 compile.bat
 compile.log
@@ -37,7 +39,13 @@ xsim_*.jou
 xsim_*.backup.*
 xsim.ini
 xvlog.pb
-xsim_out.txt
+xsim_out*.txt
+
+# Vivado generated reports & logs
+clockInfo.txt
+tight_setup_hold_pins.txt
+*_out.txt
+*_err.txt
 
 # Project-wide build artifacts
 project.wpc
@@ -51,6 +59,14 @@ runme.sh
 runme.log
 rundef.js
 
+# Generated waveforms
+*.vcd
+
+# Generated binary/hex/elf outputs
+*.hex
+*.bin
+*.elf
+
 # Temporary files
 *.tmp
 *.bak
@@ -62,3 +78,5 @@ Thumbs.db
 
 # Keep source files
 !.gitkeep
+
+__pycache__/
