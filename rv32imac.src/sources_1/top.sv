@@ -26,7 +26,7 @@ module top (
     logic [1:0]  id_alu_a_sel, id_alu_b_sel;
     logic        id_rd_we, id_mem_read, id_mem_write;
     logic [2:0]  id_mem_type;
-    logic        id_valid, id_ebreak, id_ecall, id_mret, id_illegal, id_if_access_fault;
+    logic        id_valid, id_ebreak, id_ecall, id_mret, id_illegal, id_if_access_fault, id_fence_i;
     logic        id_ex_stall, id_mul_div;
     logic        id_amo;
     logic [4:0]  id_amo_op;
@@ -35,7 +35,7 @@ module top (
     logic [31:0] ex_pc, ex_alu_result, ex_rs2_data;
     logic [4:0]  ex_rd_addr;
     logic        ex_rd_we, ex_mem_read, ex_mem_write, ex_valid, ex_done, ex_ebreak;
-    logic        ex_ecall, ex_mret, ex_illegal, ex_if_access_fault;
+    logic        ex_ecall, ex_mret, ex_illegal, ex_if_access_fault, ex_fence_i;
     logic [2:0]  ex_mem_type;
     logic        ex_amo;
     logic [4:0]  ex_amo_op;
@@ -43,7 +43,7 @@ module top (
 
     logic [31:0] mem_pc, mem_alu_result, mem_mem_data;
     logic [4:0]  mem_rd_addr;
-    logic        mem_rd_we, mem_mem_read, mem_valid, mem_ebreak, mem_load_fault;
+    logic        mem_rd_we, mem_mem_read, mem_valid, mem_ebreak, mem_load_fault, mem_store_fault;
 
     logic [4:0]  wb_rd_addr;
     logic [31:0] wb_rd_data;
@@ -69,7 +69,43 @@ module top (
     logic        ex_flush;
     logic        ex_mem_flush;
 
+    // Zcmp signals
+    logic        id_zcmp;
+    logic [1:0]  id_zcmp_op;
+    logic [3:0]  id_zcmp_rlist;
+    logic [9:0]  id_zcmp_stack_adj;
+    logic [3:0]  id_zcmp_reg_count;
+    logic        ex_zcmp;
+    logic [1:0]  ex_zcmp_op;
+    logic [3:0]  ex_zcmp_rlist;
+    logic [9:0]  ex_zcmp_stack_adj;
+    logic [3:0]  ex_zcmp_reg_count;
+
+    // Zcmt signals
+    logic        id_zcmt;
+    logic [7:0]  id_zcmt_index;
+    logic        id_zcmt_jalt;
+    logic        ex_zcmt;
+    logic [7:0]  ex_zcmt_index;
+    logic        ex_zcmt_jalt;
+
+    // EX ←→ top.sv
+    logic [4:0]  ex_zc_rs_addr;
+    logic        ex_zc_rs_addr_en;
+    logic [31:0] ex_zcmt_addr;
+    logic        ex_zcmt_addr_en;
+    logic        ex_zc_out_stall;
+    logic [31:0] zc_rs_data;
+
     logic [31:0] csr_mtvec, csr_mepc, csr_mie, csr_mip;
+    logic        csr_illegal;
+    logic [31:0] csr_jvt;
+    logic [1:0]  priv_lvl;
+    logic [31:0] pmpcfg_w   [0:3];
+    logic [31:0] pmpaddr_w  [0:15];
+    logic        pmp_fault_if, pmp_fault_ld, pmp_fault_st;
+
+    logic [31:0] reg_zc_raw_data;
 
     // EX forwarding signals
     logic [4:0]  ex_fwd_rd_addr;
@@ -115,21 +151,33 @@ module top (
     wire [11:0] ex_id_csr_addr    = hazard_bubble ? 12'h0            : id_csr_addr;
     wire [2:0]  ex_id_csr_op      = hazard_bubble ? 3'h0             : id_csr_op;
     wire [31:0] ex_id_csr_rdata   = hazard_bubble ? 32'h0            : id_csr_rdata_fwd;
+    wire        ex_id_fence_i      = hazard_bubble ? 1'b0             : id_fence_i;
     wire [1:0]  ex_id_branch_op   = hazard_bubble ? 2'h0             : id_branch_op;
     wire [2:0]  ex_id_branch_f3   = hazard_bubble ? 3'h0             : id_branch_f3;
     wire        ex_id_amo         = hazard_bubble ? 1'b0             : id_amo;
     wire [4:0]  ex_id_amo_op      = hazard_bubble ? 5'h0             : id_amo_op;
+
+    wire        ex_id_zcmp        = hazard_bubble ? 1'b0             : id_zcmp;
+    wire [1:0]  ex_id_zcmp_op     = hazard_bubble ? 2'b0             : id_zcmp_op;
+    wire [3:0]  ex_id_zcmp_rlist  = hazard_bubble ? 4'b0             : id_zcmp_rlist;
+    wire [9:0]  ex_id_zcmp_stack_adj = hazard_bubble ? 10'b0          : id_zcmp_stack_adj;
+    wire [3:0]  ex_id_zcmp_reg_count = hazard_bubble ? 4'b0          : id_zcmp_reg_count;
+    wire        ex_id_zcmt        = hazard_bubble ? 1'b0             : id_zcmt;
+    wire [7:0]  ex_id_zcmt_index  = hazard_bubble ? 8'b0             : id_zcmt_index;
+    wire        ex_id_zcmt_jalt   = hazard_bubble ? 1'b0             : id_zcmt_jalt;
 
     reg_file u_reg (
         .clk      (clk),
         .rst_n    (rst_n),
         .rs1_addr (id_rs1_addr),
         .rs2_addr (id_rs2_addr),
+        .rs3_addr (ex_zc_rs_addr),
         .rd_addr  (wb_rd_addr),
         .rd_data  (wb_rd_data),
         .rd_we    (wb_rd_we),
         .rs1_data (reg_rs1_data),
-        .rs2_data (reg_rs2_data)
+        .rs2_data (reg_rs2_data),
+        .rs3_data (reg_zc_raw_data)
     );
 
     // ================================================================
@@ -140,18 +188,14 @@ module top (
     logic [31:0] trap_pc_val;
     logic        irq_pending;
 
-    // Store access fault detection (EX stage)
-    // NOTE: Currently disabled due to false positives on some branch
-    // instructions that compute negative alu_result which triggers
-    // store-fault check when ex_mem_write from prior stores persists.
-    wire ex_store_fault = 1'b0; // ex_mem_write && ex_valid
-    //    && (ex_alu_result < 32'h80000000 || ex_alu_result >= 32'h80040000);
+    // Store access fault detection (MEM stage)
+    wire ex_store_fault = mem_store_fault && mem_valid;
 
     // Exception sources (MEM stage = older instruction)
-    wire mem_exception = mem_load_fault && mem_valid;
+    wire mem_exception = (mem_load_fault || mem_store_fault) && mem_valid;
 
     // Exception sources (EX stage = younger instruction)
-    wire ex_exception = (ex_ecall || ex_ebreak || ex_illegal || ex_if_access_fault || ex_store_fault) && ex_valid;
+    wire ex_exception = (ex_ecall || ex_ebreak || ex_illegal || ex_if_access_fault || csr_illegal) && ex_valid;
 
     // MRET (not an exception)
     wire mret_taken = ex_mret && ex_valid;
@@ -176,20 +220,22 @@ module top (
             trap_trigger = 1'b1;
             if (mem_exception) begin
                 trap_pc_val = mem_pc;
-                trap_cause_val = 32'd5;
+                if (mem_store_fault && mem_valid)
+                    trap_cause_val = 32'd7;
+                else
+                    trap_cause_val = 32'd5;
                 trap_tval_val  = mem_alu_result;
-            end else if (ex_store_fault) begin
-                trap_cause_val = 32'd7;
-                trap_tval_val  = ex_alu_result;
             end else if (ex_if_access_fault) begin
                 trap_cause_val = 32'd1;
                 trap_tval_val  = ex_pc;
             end else if (ex_illegal) begin
                 trap_cause_val = 32'd2;
+            end else if (csr_illegal) begin
+                trap_cause_val = 32'd2;
             end else if (ex_ebreak) begin
                 trap_cause_val = 32'd3;
             end else if (ex_ecall) begin
-                trap_cause_val = 32'd11;
+                trap_cause_val = (priv_lvl == 2'b00) ? 32'd8 : 32'd11;
             end
         end else if (irq_taken) begin
             trap_trigger   = 1'b1;
@@ -206,12 +252,13 @@ module top (
     end
 
     assign ex_mem_flush = any_trap_taken;
+    wire fence_i_flush = ex_fence_i && ex_valid;
 
     // ================================================================
     //  CSR
     // ================================================================
     logic        csr_we;
-    assign csr_we = ex_csr_op != 3'h0;
+    assign csr_we = (ex_csr_op != 3'h0) && !csr_illegal && !any_trap_taken;
 
     csr_reg u_csr (
         .clk     (clk),
@@ -226,13 +273,52 @@ module top (
         .trap_pc     (trap_pc_val),
         .trap_cause  (trap_cause_val),
         .trap_tval   (trap_tval_val),
+        .mret_taken  (mret_taken),
         .meip_i      (meip_i),
         .msip_i      (msip_i),
         .mtvec_val(csr_mtvec),
         .mepc_val (csr_mepc),
         .irq_pending(irq_pending),
         .mie_val   (csr_mie),
-        .mip_val   (csr_mip)
+        .mip_val   (csr_mip),
+        .jvt_val   (csr_jvt),
+        .csr_illegal(csr_illegal),
+        .priv_lvl   (priv_lvl),
+        .pmpcfg_o   (pmpcfg_w),
+        .pmpaddr_o  (pmpaddr_w)
+    );
+
+    // PMP checker for instruction fetch
+    pmp_check #(.NUM_PMP_ENTRIES(16), .PMP_GRANULARITY(0)) u_pmp_if (
+        .priv_lvl (priv_lvl),
+        .addr     (if_pc),
+        .is_write (1'b0),
+        .is_exec  (1'b1),
+        .pmpcfg   (pmpcfg_w),
+        .pmpaddr  (pmpaddr_w),
+        .pmp_fault(pmp_fault_if)
+    );
+
+    // PMP checker for data loads
+    pmp_check #(.NUM_PMP_ENTRIES(16), .PMP_GRANULARITY(0)) u_pmp_ld (
+        .priv_lvl (priv_lvl),
+        .addr     (mem_alu_result),
+        .is_write (1'b0),
+        .is_exec  (1'b0),
+        .pmpcfg   (pmpcfg_w),
+        .pmpaddr  (pmpaddr_w),
+        .pmp_fault(pmp_fault_ld)
+    );
+
+    // PMP checker for data stores
+    pmp_check #(.NUM_PMP_ENTRIES(16), .PMP_GRANULARITY(0)) u_pmp_st (
+        .priv_lvl (priv_lvl),
+        .addr     (mem_alu_result),
+        .is_write (1'b1),
+        .is_exec  (1'b0),
+        .pmpcfg   (pmpcfg_w),
+        .pmpaddr  (pmpaddr_w),
+        .pmp_fault(pmp_fault_st)
     );
 
     // ================================================================
@@ -306,6 +392,20 @@ module top (
                 id_csr_rdata_fwd = mem_csr_wdata;
             end
         end
+
+        // Zcmp alternate register read with forwarding
+        zc_rs_data = reg_zc_raw_data;
+        if (ex_zc_rs_addr_en && ex_zc_rs_addr != 5'h0) begin
+            if (ex_fwd_rd_we && ex_fwd_valid && ex_fwd_rd_addr == ex_zc_rs_addr && !ex_fwd_mem_read) begin
+                zc_rs_data = ex_alu_fwd;
+            end else if (ex_rd_we && ex_valid && ex_rd_addr == ex_zc_rs_addr && !ex_mem_read) begin
+                zc_rs_data = ex_alu_result;
+            end else if (mem_rd_we && mem_valid && mem_rd_addr == ex_zc_rs_addr) begin
+                zc_rs_data = mem_mem_read ? mem_mem_data : mem_alu_result;
+            end else if (wb_rd_we && wb_valid && wb_rd_addr == ex_zc_rs_addr) begin
+                zc_rs_data = wb_rd_data;
+            end
+        end
     end
 
     if_stage u_if (
@@ -316,7 +416,10 @@ module top (
         .branch_target(ex_branch_target),
         .trap_taken   (any_trap_taken),
         .trap_target   (ex_trap_target),
+        .fence_i_flush (fence_i_flush),
         .stall_i      (stall),
+        .priv_lvl     (priv_lvl),
+        .pmp_fault_i  (pmp_fault_if),
         .if_pc        (if_pc),
         .if_bram_addr (if_bram_addr),
         .if_instr     (if_instr),
@@ -327,6 +430,7 @@ module top (
         .if_instr    (id_instr_r),
         .if_valid    (1'b1),
         .if_access_fault(id_if_access_fault_r),
+        .priv_lvl    (priv_lvl),
         .rs1_data    (alu_rs1_data),
         .rs2_data    (alu_rs2_data),
         .id_rs1_addr (id_rs1_addr),
@@ -349,6 +453,7 @@ module top (
         .id_amo_op   (id_amo_op),
         .id_illegal  (id_illegal),
         .id_if_access_fault(id_if_access_fault),
+        .id_fence_i (id_fence_i),
         .ex_stall    (id_ex_stall),
         .ex_done     (ex_done),
         .csr_rdata   (id_csr_rdata_fwd),
@@ -356,7 +461,16 @@ module top (
         .id_csr_op   (id_csr_op),
         .id_csr_rdata(id_csr_rdata),
         .id_branch_op (id_branch_op),
-        .id_branch_f3 (id_branch_f3)
+        .id_branch_f3 (id_branch_f3),
+
+        .id_zcmp        (id_zcmp),
+        .id_zcmp_op     (id_zcmp_op),
+        .id_zcmp_rlist  (id_zcmp_rlist),
+        .id_zcmp_stack_adj(id_zcmp_stack_adj),
+        .id_zcmp_reg_count(id_zcmp_reg_count),
+        .id_zcmt        (id_zcmt),
+        .id_zcmt_index  (id_zcmt_index),
+        .id_zcmt_jalt   (id_zcmt_jalt)
     );
 
     ex_stage u_ex (
@@ -381,6 +495,7 @@ module top (
         .id_mret       (ex_id_mret),
         .id_illegal    (ex_id_illegal),
         .id_if_access_fault(ex_id_if_access_fault),
+        .id_fence_i   (ex_id_fence_i),
         .id_mul_div    (ex_id_mul_div),
         .id_amo        (ex_id_amo),
         .id_amo_op     (ex_id_amo_op),
@@ -407,6 +522,7 @@ module top (
         .ex_mret       (ex_mret),
         .ex_illegal    (ex_illegal),
         .ex_if_access_fault(ex_if_access_fault),
+        .ex_fence_i   (ex_fence_i),
         .ex_done       (ex_done),
         .ex_stall      (ex_stall_out),
 
@@ -419,14 +535,45 @@ module top (
         .ex_branch_target(ex_branch_target),
 
         .ex_stall_i      (ex_stall),
-        .ex_out_stall_i  (1'b0),
+        .ex_out_stall_i  (ex_zc_out_stall),
 
         .ex_fwd_rd_addr  (ex_fwd_rd_addr),
         .ex_fwd_rd_we    (ex_fwd_rd_we),
         .ex_fwd_mem_read (ex_fwd_mem_read),
         .ex_fwd_valid    (ex_fwd_valid),
-        .ex_alu_fwd      (ex_alu_fwd)
+        .ex_alu_fwd      (ex_alu_fwd),
+
+        // Zcmp signals
+        .id_zcmp         (ex_id_zcmp),
+        .id_zcmp_op      (ex_id_zcmp_op),
+        .id_zcmp_rlist   (ex_id_zcmp_rlist),
+        .id_zcmp_stack_adj(ex_id_zcmp_stack_adj),
+        .id_zcmp_reg_count(ex_id_zcmp_reg_count),
+
+        // Zcmt signals
+        .id_zcmt         (ex_id_zcmt),
+        .id_zcmt_index   (ex_id_zcmt_index),
+        .id_zcmt_jalt    (ex_id_zcmt_jalt),
+
+        // Zcmp register read via 3rd port + forwarding
+        .zc_rs_data      (zc_rs_data),
+
+        // Zcmt table data from IF BRAM port
+        .zcmt_table_data (if_instr_dout),
+
+        // Zcmp alternate register address (to regfile rs3)
+        .ex_zc_rs_addr   (ex_zc_rs_addr),
+        .ex_zc_rs_addr_en(ex_zc_rs_addr_en),
+
+        // Zcmt address for IF BRAM port override
+        .ex_zcmt_addr    (ex_zcmt_addr),
+        .ex_zcmt_addr_en (ex_zcmt_addr_en),
+
+        .ex_zc_out_stall (ex_zc_out_stall)
     );
+
+    // Zcmt overrides the IF BRAM port to read the JVT table
+    wire [31:0] bram_addr_b = ex_zcmt_addr_en ? ex_zcmt_addr : if_bram_addr;
 
     mem_stage #(
         .RAM_INIT_FILE("test_prog.hex")
@@ -454,16 +601,20 @@ module top (
         .mem_valid  (mem_valid),
         .mem_ebreak (mem_ebreak),
         .mem_load_fault(mem_load_fault),
+        .mem_store_fault(mem_store_fault),
         .amo_stall    (amo_stall),
         .ex_mem_flush (ex_mem_flush),
-        .if_bram_addr  (if_bram_addr),
+        .if_bram_addr  (bram_addr_b),
         .if_instr_dout(if_instr_dout),
         .ex_csr_addr (ex_csr_addr),
         .ex_csr_op   (ex_csr_op),
         .ex_csr_wdata(ex_csr_wdata),
         .mem_csr_addr(mem_csr_addr),
         .mem_csr_we  (mem_csr_we),
-        .mem_csr_wdata(mem_csr_wdata)
+        .mem_csr_wdata(mem_csr_wdata),
+        .priv_lvl     (priv_lvl),
+        .pmp_fault_load (pmp_fault_ld),
+        .pmp_fault_store(pmp_fault_st)
     );
 
     wb_stage u_wb (

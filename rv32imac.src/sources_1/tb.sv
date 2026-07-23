@@ -59,30 +59,6 @@ initial cycle_count = 0;
 always @(posedge clk) begin
     if (rst_n) begin
         cycle_count <= cycle_count + 1;
-        // Trace file disabled for speed
-        if (cycle_count > 0 && cycle_count <= 0) begin
-            $display("=== Cycle %0d ===", cycle_count);
-            $display("  IF: pc=0x%08x bram=0x%08x instr=0x%08x dw=%b stall=%b",
-                     if_pc, u_top.if_bram_addr, if_instr,
-                     u_top.u_if.data_valid, u_top.stall);
-            $display("  ID: rs1=x%0d(%08x) rs2=x%0d(%08x) rd=x%0d we=%b id_instr=0x%08x imm=0x%08x",
-                     id_rs1_addr, id_rs1_data, id_rs2_addr, id_rs2_data,
-                     id_rd_addr, id_rd_we, u_top.id_instr_r, u_top.id_imm);
-            $display("  EX: alu_result=0x%08x rd=x%0d we=%b mem_read=%b a_sel=%d b_sel=%d",
-                     ex_alu_result, ex_rd_addr, ex_rd_we, u_top.ex_mem_read,
-                     u_top.u_ex.ex_alu_a_sel_q, u_top.u_ex.ex_alu_b_sel_q);
-            $display("  EX_IN: rs1=0x%08x rs2=0x%08x imm=0x%08x alu_op=%b a_sel=%b b_sel=%b",
-                     u_top.u_ex.ex_rs1_data_q, u_top.u_ex.ex_rs2_data_q, u_top.u_ex.ex_imm_q,
-                     u_top.u_ex.ex_alu_op_q, u_top.u_ex.ex_alu_a_sel_q, u_top.u_ex.ex_alu_b_sel_q);
-            $display("  MEM: alu_result=0x%08x rd=x%0d we=%b mem_read=%b",
-                     mem_alu_result, mem_rd_addr, mem_rd_we, u_top.mem_mem_read);
-            $display("  WB: rd_data=0x%08x rd=x%0d we=%b",
-                     wb_rd_data, wb_rd_addr, wb_rd_we);
-            $display("  RF[x6]=0x%08x x31=0x%08x",
-                     u_top.u_reg.rf[6], u_top.u_reg.rf[31]);
-        end
-        
-        
     end
 end
 
@@ -157,6 +133,9 @@ always @(posedge clk) begin
                 $display("  ex_branch_op=%b", u_top.u_ex.ex_out_branch_op_q);
                 $display("  ex_pc=0x%08x ex_imm=0x%08x ex_rs1=0x%08x", u_top.u_ex.ex_out_pc_q, u_top.u_ex.ex_out_imm_q, u_top.u_ex.ex_out_rs1_q);
                 $display("  ex_alu_result=0x%08x", u_top.u_ex.ex_alu_result);
+                $display("  zc_state=%d zc_cnt=%d", u_top.u_ex.zc_state, u_top.u_ex.zc_cnt);
+                $display("  ex_zcmp_q=%b ex_zcmp_op_q=%b ex_valid_q=%b", u_top.u_ex.ex_zcmp_q, u_top.u_ex.ex_zcmp_op_q, u_top.u_ex.ex_valid_q);
+                $display("  ex_rs1_data_q=0x%08x", u_top.u_ex.ex_rs1_data_q);
             end
             trap_count <= trap_count + 1;
         end

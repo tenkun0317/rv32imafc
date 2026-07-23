@@ -3,7 +3,7 @@
 
 Usage:
   python run_arch_test.py --ext rv32i/I
-  python run_arch_test.py --ext rv32i/I --test I-add-01
+  python run_arch_test.py --ext rv32i/I --test I-add-00
   python run_arch_test.py --ext rv32i/I --recompile --save
   python run_arch_test.py --ext rv32i/I --compare-ref
 """
@@ -20,13 +20,13 @@ from datetime import datetime
 # ========================================
 #  Paths
 # ========================================
-PROJECT_DIR = Path(r"D:\Desktop\programs\vivado\rv32imafc")
-SRC_DIR = PROJECT_DIR / "rv32imafc.src" / "sources_1"
-WORK_DIR = SRC_DIR    # xvlog/xelab/xsim run here; $readmemh looks for test_prog.hex here
+PROJECT_DIR = Path(r"D:\Desktop\programs\vivado\rv32imac")
+SRC_DIR = PROJECT_DIR / "rv32imac.src" / "sources_1"
+WORK_DIR = SRC_DIR  # xvlog/xelab/xsim run here; $readmemh looks for test_prog.hex here
 HEX_FILE = WORK_DIR / "test_prog.hex"
 TEST_DIR = PROJECT_DIR / "riscv-arch-test" / "tests"
-ELF_DIR = PROJECT_DIR / "riscv-arch-test" / "work" / "rv32imafc_sim" / "elfs"
-CONFIG_DIR = PROJECT_DIR / "riscv-arch-test" / "config" / "cores" / "rv32imafc_sim"
+ELF_DIR = PROJECT_DIR / "riscv-arch-test" / "work" / "rv32imac_sim" / "elfs"
+CONFIG_DIR = PROJECT_DIR / "riscv-arch-test" / "config" / "cores" / "rv32imac_sim"
 RESULTS_DIR = PROJECT_DIR / "riscv-arch-test" / "results"
 
 # ========================================
@@ -41,24 +41,35 @@ XSIM = str(VIVADO_BIN / "xsim.bat")
 #  Source files (must be in SRC_DIR)
 # ========================================
 SV_SOURCES = [
-    "top.sv", "ex.sv", "id.sv", "if.sv", "mem.sv",
-    "wb.sv", "csr.sv", "reg.sv", "alu.sv", "div.sv", "mul.sv",
-    "unified_bram.sv", "tb.sv"
+    "top.sv",
+    "ex.sv",
+    "id.sv",
+    "if.sv",
+    "mem.sv",
+    "wb.sv",
+    "csr.sv",
+    "reg.sv",
+    "alu.sv",
+    "div.sv",
+    "mul.sv",
+    "unified_bram.sv",
+    "tb.sv",
 ]
 
 # ========================================
 #  Colors
 # ========================================
-RED   = "\033[91m"
+RED = "\033[91m"
 GREEN = "\033[92m"
 YELLOW = "\033[93m"
-CYAN  = "\033[96m"
+CYAN = "\033[96m"
 RESET = "\033[0m"
 
 
 # ============================================================
 #  Utility functions
 # ============================================================
+
 
 def win_to_wsl(path: Path) -> str:
     """Convert a Windows path to a WSL /mnt/ path."""
@@ -71,20 +82,28 @@ def win_to_wsl(path: Path) -> str:
 def elf_to_hex(elf_path: Path, work_dir: Path) -> str:
     """Convert RISC-V ELF to hex string using WSL objcopy."""
     tmp_bin = work_dir / f"_{elf_path.stem}.bin"
-    result = subprocess.run([
-        "wsl", "riscv64-unknown-elf-objcopy", "-O", "binary",
-        win_to_wsl(elf_path), win_to_wsl(tmp_bin)
-    ], capture_output=True, text=True)
+    result = subprocess.run(
+        [
+            "wsl",
+            "riscv64-unknown-elf-objcopy",
+            "-O",
+            "binary",
+            win_to_wsl(elf_path),
+            win_to_wsl(tmp_bin),
+        ],
+        capture_output=True,
+        text=True,
+    )
     if result.returncode != 0:
         raise RuntimeError(f"objcopy failed:\n{result.stderr}")
     bin_data = tmp_bin.read_bytes()
     tmp_bin.unlink(missing_ok=True)
     lines = []
     for i in range(0, len(bin_data), 4):
-        chunk = bin_data[i:i+4]
+        chunk = bin_data[i : i + 4]
         if len(chunk) < 4:
-            chunk = chunk + b'\x00' * (4 - len(chunk))
-        word = int.from_bytes(chunk, 'little')
+            chunk = chunk + b"\x00" * (4 - len(chunk))
+        word = int.from_bytes(chunk, "little")
         lines.append(f"{word:08x}")
     return "\n".join(lines) + "\n"
 
@@ -96,17 +115,25 @@ def assemble_source(src_path: Path, elf_path: Path) -> bool:
         print(f"  {RED}link.ld not found: {link_ld}{RESET}")
         return False
     elf_path.parent.mkdir(parents=True, exist_ok=True)
-    result = subprocess.run([
-        "wsl", "riscv64-unknown-elf-gcc",
-        "-nostartfiles", "-nostdlib",
-        "-march=rv32imafc_zifencei_zicntr_zicond_zba_zbb_zbs_zcb", "-mabi=ilp32",
-        "-DTEST_FLEN=32",
-        f"-I{win_to_wsl(TEST_DIR / 'env')}",
-        f"-I{win_to_wsl(CONFIG_DIR)}",
-        f"-T{win_to_wsl(link_ld)}",
-        "-o", win_to_wsl(elf_path),
-        win_to_wsl(src_path),
-    ], capture_output=True, text=True)
+    result = subprocess.run(
+        [
+            "wsl",
+            "riscv64-unknown-elf-gcc",
+            "-nostartfiles",
+            "-nostdlib",
+            "-march=rv32imac_zifencei_zicntr_zicond_zba_zbb_zbs_zcb_zcmp",
+            "-mabi=ilp32",
+            "-DTEST_FLEN=32",
+            f"-I{win_to_wsl(TEST_DIR / 'env')}",
+            f"-I{win_to_wsl(CONFIG_DIR)}",
+            f"-T{win_to_wsl(link_ld)}",
+            "-o",
+            win_to_wsl(elf_path),
+            win_to_wsl(src_path),
+        ],
+        capture_output=True,
+        text=True,
+    )
     if result.returncode != 0:
         err = result.stderr.strip()
         print(f"  {RED}Assembly failed:{RESET}\n{err[:600]}")
@@ -117,6 +144,7 @@ def assemble_source(src_path: Path, elf_path: Path) -> bool:
 # ============================================================
 #  Simulation functions
 # ============================================================
+
 
 def verify_sources() -> bool:
     """Check that all required source files exist in SRC_DIR."""
@@ -142,7 +170,11 @@ def compile_design() -> bool:
         # xvlog
         r = subprocess.run(
             [XVLOG, "-sv", *src_files],
-            cwd=str(WORK_DIR), capture_output=True, text=True, timeout=120)
+            cwd=str(WORK_DIR),
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
         if r.returncode != 0:
             print(f"  {RED}xvlog failed:{RESET}\n{r.stderr[:600]}")
             return False
@@ -150,7 +182,11 @@ def compile_design() -> bool:
         # xelab
         r = subprocess.run(
             [XELAB, "work.tb"],
-            cwd=str(WORK_DIR), capture_output=True, text=True, timeout=120)
+            cwd=str(WORK_DIR),
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
         if r.returncode != 0:
             print(f"  {RED}xelab failed:{RESET}\n{r.stderr[:600]}")
             return False
@@ -172,9 +208,8 @@ def run_xsim(timeout: int = 120, plusargs: list[str] | None = None) -> tuple[boo
         cmd.extend(plusargs)
     try:
         result = subprocess.run(
-            cmd,
-            cwd=str(WORK_DIR),
-            capture_output=True, text=True, timeout=timeout)
+            cmd, cwd=str(WORK_DIR), capture_output=True, text=True, timeout=timeout
+        )
         output = result.stdout + result.stderr
     except subprocess.TimeoutExpired:
         return False, "TIMEOUT"
@@ -189,12 +224,13 @@ def run_xsim(timeout: int = 120, plusargs: list[str] | None = None) -> tuple[boo
 #  BRAM / signature analysis
 # ============================================================
 
+
 def extract_bram_from_output(output: str) -> list[int]:
     """Parse BRAM[N] = 0xXXXX lines from simulation output.
     Returns a list of 16384 words, or fewer if output was truncated."""
     bram = {}
     for line in output.splitlines():
-        m = re.match(r'BRAM\[(\d+)\]\s*=\s*0x([0-9a-fA-F]+)', line)
+        m = re.match(r"BRAM\[(\d+)\]\s*=\s*0x([0-9a-fA-F]+)", line)
         if m:
             idx = int(m.group(1))
             val = int(m.group(2), 16)
@@ -256,7 +292,7 @@ def parse_ref_output(ref_path: Path) -> list[int]:
     vals = []
     for line in ref_path.read_text().splitlines():
         line = line.strip()
-        if line and not line.startswith('#'):
+        if line and not line.startswith("#"):
             try:
                 vals.append(int(line, 16))
             except ValueError:
@@ -264,7 +300,9 @@ def parse_ref_output(ref_path: Path) -> list[int]:
     return vals
 
 
-def compare_signatures(actual: list[int], expected: list[int]) -> tuple[bool, list[str]]:
+def compare_signatures(
+    actual: list[int], expected: list[int]
+) -> tuple[bool, list[str]]:
     """Compare two signature lists. Returns (match, difference_strings)."""
     diffs = []
     n = max(len(actual), len(expected))
@@ -280,9 +318,14 @@ def compare_signatures(actual: list[int], expected: list[int]) -> tuple[bool, li
 #  Single test runner
 # ============================================================
 
-def run_single_test(elf_path: Path, timeout: int,
-                    save_output: bool, compare_ref: bool,
-                    dump_trace: bool = False) -> tuple[str, str, str]:
+
+def run_single_test(
+    elf_path: Path,
+    timeout: int,
+    save_output: bool,
+    compare_ref: bool,
+    dump_trace: bool = False,
+) -> tuple[str, str, str]:
     """Run one ELF through simulation.
 
     Returns (test_name, status, detail).
@@ -358,7 +401,11 @@ def run_single_test(elf_path: Path, timeout: int,
     # Reference comparison
     if compare_ref:
         # Look for .ref_output in test source directory
-        src_dir = TEST_DIR / elf_path.parent.relative_to(ELF_DIR).parent / elf_path.parent.name
+        src_dir = (
+            TEST_DIR
+            / elf_path.parent.relative_to(ELF_DIR).parent
+            / elf_path.parent.name
+        )
         ref_paths = [
             src_dir / f"{name}.ref_output",
             src_dir / f"{name.replace('-', '_')}.ref_output",
@@ -376,7 +423,11 @@ def run_single_test(elf_path: Path, timeout: int,
                     return name, "PASS", f"cycle{cycle} sig({len(sig)}w) ref_match"
                 else:
                     diff_str = "\n".join(diffs[:15])
-                    return name, "FAIL", f"cycle{cycle} sig({len(sig)}w) ref_MISMATCH\n{diff_str}"
+                    return (
+                        name,
+                        "FAIL",
+                        f"cycle{cycle} sig({len(sig)}w) ref_MISMATCH\n{diff_str}",
+                    )
 
     # No reference — ebreak reached = PASS (we trust execution completed)
     return name, "PASS", f"cycle{cycle} sig({len(sig)}w)"
@@ -386,28 +437,51 @@ def run_single_test(elf_path: Path, timeout: int,
 #  Main
 # ============================================================
 
+
 def main():
     import argparse
-    parser = argparse.ArgumentParser(
-        description="Run riscv-arch-test ELFs through xsim simulation")
 
-    parser.add_argument("--ext", default="rv32i/I",
-                        help="Test subdirectory (default: rv32i/I)")
-    parser.add_argument("-j", "--jobs", type=int, default=1,
-                        help="Parallel jobs (1 = serial, default)")
-    parser.add_argument("--recompile", action="store_true",
-                        help="Recompile design (xvlog + xelab)")
-    parser.add_argument("--clean", action="store_true",
-                        help="Force rebuild all test ELFs from .S source")
-    parser.add_argument("--test", help="Run a single test by name (e.g. I-add-01)")
-    parser.add_argument("--save", action="store_true",
-                        help="Save simulation output / BRAM / signature to results/")
-    parser.add_argument("--compare-ref", "--ref", action="store_true",
-                        help="Compare signatures against .ref_output files")
-    parser.add_argument("--trace", action="store_true",
-                        help="Dump full pipeline trace (CSV) to results/")
-    parser.add_argument("--timeout", type=int, default=3600,
-                        help="Per-test timeout in seconds (default: 120)")
+    parser = argparse.ArgumentParser(
+        description="Run riscv-arch-test ELFs through xsim simulation"
+    )
+
+    parser.add_argument(
+        "--ext", default="rv32i/I", help="Test subdirectory (default: rv32i/I)"
+    )
+    parser.add_argument(
+        "-j", "--jobs", type=int, default=1, help="Parallel jobs (1 = serial, default)"
+    )
+    parser.add_argument(
+        "--recompile", action="store_true", help="Recompile design (xvlog + xelab)"
+    )
+    parser.add_argument(
+        "--clean",
+        action="store_true",
+        help="Force rebuild all test ELFs from .S source",
+    )
+    parser.add_argument("--test", help="Run a single test by name (e.g. I-add-00)")
+    parser.add_argument(
+        "--save",
+        action="store_true",
+        help="Save simulation output / BRAM / signature to results/",
+    )
+    parser.add_argument(
+        "--compare-ref",
+        "--ref",
+        action="store_true",
+        help="Compare signatures against .ref_output files",
+    )
+    parser.add_argument(
+        "--trace",
+        action="store_true",
+        help="Dump full pipeline trace (CSV) to results/",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=3600,
+        help="Per-test timeout in seconds (default: 120)",
+    )
     args = parser.parse_args()
 
     # Locate ELF or source directory
@@ -422,8 +496,9 @@ def main():
                 ef.unlink()
             to_build = src_files
         else:
-            to_build = [s for s in src_files
-                        if not (elf_dir / f"{s.stem}.elf").exists()]
+            to_build = [
+                s for s in src_files if not (elf_dir / f"{s.stem}.elf").exists()
+            ]
         if to_build:
             print(f"Assembling {len(to_build)} test(s)...")
             for s in to_build:
@@ -462,11 +537,12 @@ def main():
     # Run tests (serial by default for reliability)
     results: list[tuple[str, str, str]] = []
 
-    print(f"{'─'*60}")
+    print(f"{'─' * 60}")
     for ef in elf_files:
         start = datetime.now()
         name, status, detail = run_single_test(
-            ef, args.timeout, args.save, args.compare_ref, args.trace)
+            ef, args.timeout, args.save, args.compare_ref, args.trace
+        )
         elapsed = (datetime.now() - start).total_seconds()
 
         if status == "PASS":
@@ -486,9 +562,9 @@ def main():
     total = len(results)
     passed = sum(1 for _, s in results if s == "PASS")
     failed = sum(1 for _, s in results if s in ("FAIL", "ERROR"))
-    timed  = sum(1 for _, s in results if s == "TIMEOUT")
+    timed = sum(1 for _, s in results if s == "TIMEOUT")
 
-    print(f"{'─'*60}")
+    print(f"{'─' * 60}")
     if failed == 0 and timed == 0:
         print(f"{GREEN}All {total} tests PASSED{RESET}")
     else:

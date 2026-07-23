@@ -10,7 +10,13 @@ module if_stage (
     input  logic        trap_taken,
     input  logic [31:0] trap_target,
 
+    input  logic        fence_i_flush,
+
     input  logic        stall_i,
+
+    input  logic [1:0]  priv_lvl,
+
+    input  logic        pmp_fault_i,
 
     output logic [31:0] if_pc,
     output logic [31:0] if_bram_addr,
@@ -64,13 +70,21 @@ module if_stage (
         end else if (stall_i) begin
             if (!data_valid) data_valid <= 1'b1;
 
-        end else if (branch_taken || trap_taken) begin
+        end else if (branch_taken || trap_taken || fence_i_flush) begin
             automatic logic [31:0] tgt = trap_taken ? trap_target : branch_target;
-            pc            <= tgt;
-            fetch_addr    <= tgt & 32'hFFFF_FFFC;
-            data_valid    <= 1'b0;
-            straddle_pend <= 1'b0;
-            straddle_wait <= 1'b0;
+            if (fence_i_flush) begin
+                pc            <= pc;
+                fetch_addr    <= pc & 32'hFFFF_FFFC;
+                data_valid    <= 1'b0;
+                straddle_pend <= 1'b0;
+                straddle_wait <= 1'b0;
+            end else begin
+                pc            <= tgt;
+                fetch_addr    <= tgt & 32'hFFFF_FFFC;
+                data_valid    <= 1'b0;
+                straddle_pend <= 1'b0;
+                straddle_wait <= 1'b0;
+            end
 
         end else begin
             if (straddle_pend) begin
@@ -110,6 +124,9 @@ module if_stage (
         end
     end
 
-    assign if_access_fault = (pc < 32'h80000000 || pc >= 32'h80040000);
+    localparam RAM_SIZE = 262144;
+    wire pc_in_hi_ram = (pc >= 32'h80000000) && (pc < 32'h80000000 + RAM_SIZE);
+    wire pc_in_lo_ram = (pc < RAM_SIZE);
+    assign if_access_fault = !(pc_in_hi_ram || pc_in_lo_ram) || pmp_fault_i;
 
 endmodule

@@ -2,6 +2,7 @@ module id_stage (
     input  logic [31:0] if_instr,
     input  logic        if_valid,
     input  logic        if_access_fault,
+    input  logic [1:0]  priv_lvl,
     input  logic [31:0] rs1_data,
     input  logic [31:0] rs2_data,
 
@@ -25,6 +26,7 @@ module id_stage (
     output logic [4:0]  id_amo_op,  // funct5 for AMO/LR/SC
     output logic        id_illegal,
     output logic        id_if_access_fault,
+    output logic        id_fence_i,
 
     output logic        ex_stall,
     input  logic        ex_done,
@@ -35,8 +37,22 @@ module id_stage (
     output logic [31:0] id_csr_rdata,
 
     output logic [1:0]  id_branch_op,
-    output logic [2:0]  id_branch_f3
+    output logic [2:0]  id_branch_f3,
+
+    // Zcmp signals
+    output logic        id_zcmp,
+    output logic [1:0]  id_zcmp_op,
+    output logic [3:0]  id_zcmp_rlist,
+    output logic [9:0]  id_zcmp_stack_adj,
+    output logic [3:0]  id_zcmp_reg_count,
+
+    // Zcmt signals
+    output logic        id_zcmt,
+    output logic [7:0]  id_zcmt_index,
+    output logic        id_zcmt_jalt
 );
+
+    localparam NUM_PMP_ENTRIES = 16;
 
     // ================================================================
     //  C-extension expander: 16-bit → 32-bit
@@ -293,18 +309,42 @@ module id_stage (
                                                 if_instr[12],
                                                 7'b1100011};
                          end
-                          3'b111: begin // C.BNEZ
-                              // BNE rs1'(x8+inst[9:7]), x0, offset
-                              expanded_instr = {if_instr[12],
-                                                if_instr[12], if_instr[12], if_instr[12],
-                                                if_instr[6], if_instr[5], if_instr[2],
-                                                5'b00000,
-                                                2'b01, if_instr[9:7],
-                                                3'b001,
-                                                if_instr[11], if_instr[10], if_instr[4], if_instr[3],
-                                                if_instr[12],
-                                                7'b1100011};
-                         end
+3'b111: begin // Zcmp or C.BNEZ
+                               // Zcmp (bit12=1) occupies a subset of Quadrant-1
+                               // funct3=111 encoding space within CA-format reserved
+                               // bits.  Zcmt is disabled because its encoding
+                               // (bit12=0, bits[11:10]=00, all index values) fully
+                               // overlaps with C.BNEZ.
+                               //
+                               // When Zcmp is detected, output a NOP to suppress
+                               // spurious standard-decode signals.
+                               if (if_instr[12] == 1'b1) begin
+                                   if ((if_instr[11:10] == 2'b01 && if_instr[6:5] == 2'b00 && if_instr[9:7] >= 3'd4) ||
+                                       (if_instr[11:10] == 2'b11 && |if_instr[6:5] && if_instr[9:7] >= 3'd4))
+                                       expanded_instr = 32'h00000013;  // nop placeholder
+                                   else
+                                       expanded_instr = {if_instr[12],
+                                                         if_instr[12], if_instr[12], if_instr[12],
+                                                         if_instr[6], if_instr[5], if_instr[2],
+                                                         5'b00000,
+                                                         2'b01, if_instr[9:7],
+                                                         3'b001,
+                                                         if_instr[11], if_instr[10], if_instr[4], if_instr[3],
+                                                         if_instr[12],
+                                                         7'b1100011};
+                               end else begin
+                                   // C.BNEZ (bit12=0, all patterns)
+                                   expanded_instr = {if_instr[12],
+                                                     if_instr[12], if_instr[12], if_instr[12],
+                                                     if_instr[6], if_instr[5], if_instr[2],
+                                                     5'b00000,
+                                                     2'b01, if_instr[9:7],
+                                                     3'b001,
+                                                     if_instr[11], if_instr[10], if_instr[4], if_instr[3],
+                                                     if_instr[12],
+                                                     7'b1100011};
+                               end
+                          end
                           default: begin
                               expander_illegal = 1'b1;
                               expanded_instr = 32'h00000013;
@@ -389,12 +429,12 @@ module id_stage (
     assign rs1 = expanded_instr[19:15];
     assign rs2 = expanded_instr[24:20];
 
-    assign id_rs2_addr = rs2;
     assign id_rd_addr  = rd;
 
     assign id_csr_rdata = csr_rdata;
 
     always_comb begin
+        id_rs2_addr = rs2;
         id_imm = 32'h0;
         id_alu_op = 6'b0;
         id_alu_a_sel = 2'b00;
@@ -410,6 +450,7 @@ module id_stage (
         id_illegal = expander_illegal;
         id_if_access_fault = if_access_fault;
         ex_stall = 1'b0;
+        id_fence_i = 1'b0;
         id_mul_div = 1'b0;
         id_amo = 1'b0;
         id_amo_op = 5'b0;
@@ -418,6 +459,112 @@ module id_stage (
         id_csr_op = 3'h0;
         id_branch_op = 2'h0;
         id_branch_f3 = 3'h0;
+
+        id_zcmp = 1'b0;
+        id_zcmp_op = 2'b0;
+        id_zcmp_rlist = 4'b0;
+        id_zcmp_stack_adj = 10'b0;
+        id_zcmp_reg_count = 4'b0;
+        id_zcmt = 1'b0;
+        id_zcmt_index = 8'b0;
+        id_zcmt_jalt = 1'b0;
+
+        // ── Zcmp / Zcmt decode (Quadrant-1, funct3 = 111) ──
+        //
+        // Zc extensions occupy the Quadrant-1 funct3=111 encoding space
+        // that is reserved in base RV32IC.  C.SRLI / C.SUB etc. use
+        // funct3=100, and C.BNEZ also uses funct3=111 in base RV32IC,
+        // so when Zc is enabled those C.BNEZ encodings are repurposed.
+        //
+        // Detection:   bits[1:0]=01,  bits[15:13]=111
+        //
+        // ── Zcmp (bit[12]=1) ──
+        //  cm.push:    bits[11:10]=01,  bits[6:5]=00
+        //  cm.pop:     bits[11:10]=11,  bits[6:5]=01
+        //  cm.popretz: bits[11:10]=11,  bits[6:5]=10
+        //  cm.popret:  bits[11:10]=11,  bits[6:5]=11
+        //  rlist  = bits[9:7]  (3-bit, valid values 4–7)
+        //  spimm  = bits[4:2]  (3-bit, stack_adj = (spimm+1)*16)
+        //
+        //  rlist → reg_count:
+        //    rlist=4 → 5 regs ({ra, s0..s3})    rlist=5 → 6 ({ra, s0..s4})
+        //    rlist=6 → 7 ({ra, s0..s5})          rlist=7 → 13 ({ra, s0..s11})
+        //
+        // ── Zcmt (bit[12]=0,  bits[11:10]=00) ──
+        //  8-bit table index = {bits[9:7], bit[6], bits[5:2]}
+        //   cm.jt:   bit[6]=0    cm.jalt:  bit[6]=1
+        //
+        if (if_instr[1:0] == 2'b01 && if_instr[15:13] == 3'b111) begin
+            // ── Zcmp (CA-format, bit[12]=1) ──
+            if (if_instr[12] == 1'b1) begin
+                // cm.push: bits[11:10]=01, bits[6:5]=00, rlist >= 4
+                if (if_instr[11:10] == 2'b01 && if_instr[6:5] == 2'b00 && if_instr[9:7] >= 3'd4) begin
+                    id_zcmp           = 1'b1;
+                    id_zcmp_op        = 2'b00;   // push
+                    id_zcmp_rlist     = {1'b0, if_instr[9:7]};
+                    // spimm = bits[4:2]; stack_adj = (spimm + 1) * 16
+                    id_zcmp_stack_adj = {2'b0, (if_instr[4:2] + 3'd1), 4'b0000};
+                    // reg_count decode from rlist
+                    unique case (if_instr[9:7])
+                        3'd4: id_zcmp_reg_count = 4'd5;
+                        3'd5: id_zcmp_reg_count = 4'd6;
+                        3'd6: id_zcmp_reg_count = 4'd7;
+                        3'd7: id_zcmp_reg_count = 4'd13;
+                        default: id_zcmp_reg_count = 4'd0;
+                    endcase
+                end
+                // cm.pop:     bits[11:10]=11, bits[6:5]=01, rlist >= 4
+                else if (if_instr[11:10] == 2'b11 && if_instr[6:5] == 2'b01 && if_instr[9:7] >= 3'd4) begin
+                    id_zcmp           = 1'b1;
+                    id_zcmp_op        = 2'b01;   // pop
+                    id_zcmp_rlist     = {1'b0, if_instr[9:7]};
+                    id_zcmp_stack_adj = {2'b0, (if_instr[4:2] + 3'd1), 4'b0000};
+                    unique case (if_instr[9:7])
+                        3'd4: id_zcmp_reg_count = 4'd5;
+                        3'd5: id_zcmp_reg_count = 4'd6;
+                        3'd6: id_zcmp_reg_count = 4'd7;
+                        3'd7: id_zcmp_reg_count = 4'd13;
+                        default: id_zcmp_reg_count = 4'd0;
+                    endcase
+                end
+                // cm.popretz: bits[11:10]=11, bits[6:5]=10, rlist >= 4
+                else if (if_instr[11:10] == 2'b11 && if_instr[6:5] == 2'b10 && if_instr[9:7] >= 3'd4) begin
+                    id_zcmp           = 1'b1;
+                    id_zcmp_op        = 2'b10;   // popretz
+                    id_zcmp_rlist     = {1'b0, if_instr[9:7]};
+                    id_zcmp_stack_adj = {2'b0, (if_instr[4:2] + 3'd1), 4'b0000};
+                    unique case (if_instr[9:7])
+                        3'd4: id_zcmp_reg_count = 4'd5;
+                        3'd5: id_zcmp_reg_count = 4'd6;
+                        3'd6: id_zcmp_reg_count = 4'd7;
+                        3'd7: id_zcmp_reg_count = 4'd13;
+                        default: id_zcmp_reg_count = 4'd0;
+                    endcase
+                end
+                // cm.popret:  bits[11:10]=11, bits[6:5]=11, rlist >= 4
+                else if (if_instr[11:10] == 2'b11 && if_instr[6:5] == 2'b11 && if_instr[9:7] >= 3'd4) begin
+                    id_zcmp           = 1'b1;
+                    id_zcmp_op        = 2'b11;   // popret
+                    id_zcmp_rlist     = {1'b0, if_instr[9:7]};
+                    id_zcmp_stack_adj = {2'b0, (if_instr[4:2] + 3'd1), 4'b0000};
+                    unique case (if_instr[9:7])
+                        3'd4: id_zcmp_reg_count = 4'd5;
+                        3'd5: id_zcmp_reg_count = 4'd6;
+                        3'd6: id_zcmp_reg_count = 4'd7;
+                        3'd7: id_zcmp_reg_count = 4'd13;
+                        default: id_zcmp_reg_count = 4'd0;
+                    endcase
+                end
+            end
+            // ── Zcmt: disabled ──
+            // Zcmt (bit12=0, bits[11:10]=00) occupies the entire
+            // funct3=111 / bits[11:10]=00 space, which overlaps fully
+            // with C.BNEZ (the base RV32IC funct3=111 encoding).
+            // There is no spare bit to distinguish the two; keeping
+            // C.BNEZ alive requires Zcmt to remain disabled here.
+            // The JVT CSR and EX state machine are still in place
+            // but will never be activated by the decoder.
+        end
 
         case (opcode)
             7'b0110111: begin
@@ -634,8 +781,18 @@ module id_stage (
                         id_ecall = 1'b1;
                     else if (funct12 == 12'h001)
                         id_ebreak = 1'b1;
-                    else if (funct12 == 12'h302)
-                        id_mret = 1'b1;
+                    else if (funct12 == 12'h302) begin
+                        if (priv_lvl == 2'b11)
+                            id_mret = 1'b1;
+                        else
+                            id_illegal = 1'b1;
+                    end else if (funct12 == 12'h105) begin
+                        // WFI: nop in M-mode, illegal in U-mode
+                        if (priv_lvl != 2'b11)
+                            id_illegal = 1'b1;
+                    end else begin
+                        id_illegal = 1'b1;
+                    end
                 end else if (funct3[2]) begin
                     // CSR immediate-variant: CSRRWI (101), CSRRSI (110), CSRRCI (111)
                     id_csr_addr = expanded_instr[31:20];
@@ -643,15 +800,48 @@ module id_stage (
                     id_rd_we    = 1'b1;
                     id_rs1_addr = 5'h0;
                     id_imm      = {27'h0, rs1};
+                    if (!(expanded_instr[31:20] inside {
+                        12'h300, 12'h301, 12'h304, 12'h305, 12'h320,
+                        12'h340, 12'h341, 12'h342, 12'h343, 12'h344,
+                        12'hB00, 12'hB02, 12'hB80, 12'hB82,
+                        12'hC00, 12'hC01, 12'hC02, 12'hC60, 12'hC80, 12'hC82,
+                        12'hF11, 12'hF12, 12'hF13, 12'hF14,
+                        12'h017,
+                        12'h3A0, 12'h3A1, 12'h3A2, 12'h3A3
+                    }) && !(expanded_instr[31:20] >= 12'h3B0 && expanded_instr[31:20] < 12'h3B0 + NUM_PMP_ENTRIES)) begin
+                        id_illegal = 1'b1;
+                        id_rd_we   = 1'b0;
+                    end else if (priv_lvl != 2'b11 && expanded_instr[29:28] == 2'b11) begin
+                        id_illegal = 1'b1;
+                        id_rd_we   = 1'b0;
+                    end
                  end else begin
                     // CSR register-variant: CSRRW (001), CSRRS (010), CSRRC (011)
                     id_csr_addr = expanded_instr[31:20];
                     id_csr_op   = funct3;
                     id_rd_we    = 1'b1;
+                    if (!(expanded_instr[31:20] inside {
+                        12'h300, 12'h301, 12'h304, 12'h305, 12'h320,
+                        12'h340, 12'h341, 12'h342, 12'h343, 12'h344,
+                        12'hB00, 12'hB02, 12'hB80, 12'hB82,
+                        12'hC00, 12'hC01, 12'hC02, 12'hC60, 12'hC80, 12'hC82,
+                        12'hF11, 12'hF12, 12'hF13, 12'hF14,
+                        12'h017,
+                        12'h3A0, 12'h3A1, 12'h3A2, 12'h3A3
+                    }) && !(expanded_instr[31:20] >= 12'h3B0 && expanded_instr[31:20] < 12'h3B0 + NUM_PMP_ENTRIES)) begin
+                        id_illegal = 1'b1;
+                        id_rd_we   = 1'b0;
+                    end else if (priv_lvl != 2'b11 && expanded_instr[29:28] == 2'b11) begin
+                        id_illegal = 1'b1;
+                        id_rd_we   = 1'b0;
+                    end
                 end
             end
             7'b0001111: begin
-                // FENCE / FENCE.I — no architectural effect for this core
+                // FENCE (funct3=000): no architectural effect for single-hart
+                // FENCE.I (funct3=001): flush IF pipeline
+                if (funct3 == 3'b001)
+                    id_fence_i = 1'b1;
             end
             7'b0101111: begin
                 // AMO / LR / SC
@@ -685,6 +875,15 @@ module id_stage (
                 id_illegal = 1'b1;
             end
         endcase
+
+        // Zcmp/Zcmt override rs1/rs2 addresses after the opcode case
+        if (id_zcmp) begin
+            id_rs1_addr = 5'd2;  // SP
+            id_rs2_addr = 5'd0;
+        end else if (id_zcmt) begin
+            id_rs1_addr = 5'd0;  // x0 (no register read needed)
+            id_rs2_addr = 5'd0;
+        end
     end
 
 endmodule

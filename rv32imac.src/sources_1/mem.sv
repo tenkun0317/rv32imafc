@@ -28,6 +28,7 @@ module mem_stage #(
     output logic        mem_valid,
     output logic        mem_ebreak,
     output logic        mem_load_fault,
+    output logic        mem_store_fault,
     output logic        amo_stall,
 
     // IF instruction fetch via Port B
@@ -39,7 +40,11 @@ module mem_stage #(
     input  logic [31:0] ex_csr_wdata,
     output logic [11:0] mem_csr_addr,
     output logic        mem_csr_we,
-    output logic [31:0] mem_csr_wdata
+    output logic [31:0] mem_csr_wdata,
+
+    input  logic [1:0]  priv_lvl,
+    input  logic        pmp_fault_load,
+    input  logic        pmp_fault_store
 );
 
     // AMO opcodes (funct5)
@@ -338,10 +343,12 @@ module mem_stage #(
     assign mem_csr_we   = mem_csr_we_q;
     assign mem_csr_wdata = mem_csr_wdata_q;
 
-    // Load access fault detection
+    // Load / Store access fault detection (addr range + PMP)
     wire mem_addr_hi_in_range = (mem_alu_result >= 32'h80000000) && (mem_alu_result < 32'h80000000 + RAM_SIZE);
     wire mem_addr_lo_in_range = (mem_alu_result < RAM_SIZE);
     wire mem_addr_in_range = mem_addr_hi_in_range || mem_addr_lo_in_range;
-    assign mem_load_fault  = mem_mem_read && mem_valid && !mem_addr_in_range;
+    assign mem_load_fault  = mem_mem_read && mem_valid && (!mem_addr_in_range || pmp_fault_load);
+    wire ex_mem_write_comb = ex_mem_write || ex_amo;
+    assign mem_store_fault = ex_mem_write_comb && ex_valid && (!mem_addr_in_range || pmp_fault_store);
 
 endmodule

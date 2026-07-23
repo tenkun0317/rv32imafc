@@ -1,6 +1,6 @@
-create_project rv32imafc_synth rv32imafc_synth -part xc7a100tcsg324-1 -force
+create_project rv32imac_synth rv32imac_synth -part xc7a100tcsg324-1 -force
 
-set src_dir [file normalize "rv32imafc.src/sources_1"]
+set src_dir [file normalize "rv32imac.src/sources_1"]
 set files [list \
     top.sv ex.sv id.sv if.sv mem.sv wb.sv csr.sv reg.sv alu.sv div.sv mul.sv unified_bram.sv \
 ]
@@ -9,7 +9,7 @@ foreach f $files {
     add_files -norecurse [file join $src_dir $f]
 }
 
-read_xdc [file join "rv32imafc.src" constrs_1 pins.xdc]
+read_xdc [file join "rv32imac.src" constrs_1 pins.xdc]
 
 set_property top top [current_fileset]
 

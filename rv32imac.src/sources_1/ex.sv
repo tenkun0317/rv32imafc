@@ -20,6 +20,7 @@ module ex_stage (
     input  logic        id_mret,
     input  logic        id_illegal,
     input  logic        id_if_access_fault,
+    input  logic        id_fence_i,
     input  logic        id_mul_div,
     input  logic        id_amo,
     input  logic [4:0]  id_amo_op,
@@ -31,6 +32,24 @@ module ex_stage (
     input  logic        ex_flush,
     input  logic        ex_stall_i,
     input  logic        ex_out_stall_i,
+
+    // Zcmp signals from ID
+    input  logic        id_zcmp,
+    input  logic [1:0]  id_zcmp_op,
+    input  logic [3:0]  id_zcmp_rlist,
+    input  logic [9:0]  id_zcmp_stack_adj,
+    input  logic [3:0]  id_zcmp_reg_count,
+
+    // Zcmt signals from ID
+    input  logic        id_zcmt,
+    input  logic [7:0]  id_zcmt_index,
+    input  logic        id_zcmt_jalt,
+
+    // Combinational register data for Zcmp push
+    input  logic [31:0] zc_rs_data,
+
+    // Zcmt table data from IF BRAM port
+    input  logic [31:0] zcmt_table_data,
 
     output logic [31:0] ex_pc,
     output logic [31:0] ex_alu_result,
@@ -48,6 +67,7 @@ module ex_stage (
     output logic        ex_mret,
     output logic        ex_illegal,
     output logic        ex_if_access_fault,
+    output logic        ex_fence_i,
     output logic        ex_done,
     output logic        ex_stall,
 
@@ -63,7 +83,18 @@ module ex_stage (
     output logic        ex_fwd_rd_we,
     output logic        ex_fwd_mem_read,
     output logic        ex_fwd_valid,
-    output logic [31:0] ex_alu_fwd
+    output logic [31:0] ex_alu_fwd,
+
+    // Zcmp alternate register read address
+    output logic [4:0]  ex_zc_rs_addr,
+    output logic        ex_zc_rs_addr_en,
+
+    // Zcmt table read address + active (to IF BRAM port)
+    output logic [31:0] ex_zcmt_addr,
+    output logic        ex_zcmt_addr_en,
+
+    // Stall EX_OUT during Zcmt wait
+    output logic        ex_zc_out_stall
 );
 
     // ================================================================
@@ -87,6 +118,7 @@ module ex_stage (
     logic        ex_mret_q;
     logic        ex_illegal_q;
     logic        ex_if_access_fault_q;
+    logic        ex_fence_i_q;
     logic        ex_mul_div_q;
     logic        ex_amo_q;
     logic [4:0]  ex_amo_op_q;
@@ -95,6 +127,15 @@ module ex_stage (
     logic [31:0] ex_csr_rdata_q;
     logic [1:0]  ex_branch_op_q;
     logic [2:0]  ex_branch_f3_q;
+
+    logic        ex_zcmp_q;
+    logic [1:0]  ex_zcmp_op_q;
+    logic [3:0]  ex_zcmp_rlist_q;
+    logic [9:0]  ex_zcmp_stack_adj_q;
+    logic [3:0]  ex_zcmp_reg_count_q;
+    logic        ex_zcmt_q;
+    logic [7:0]  ex_zcmt_index_q;
+    logic        ex_zcmt_jalt_q;
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -116,6 +157,7 @@ module ex_stage (
             ex_mret_q       <= 1'b0;
             ex_illegal_q    <= 1'b0;
             ex_if_access_fault_q <= 1'b0;
+            ex_fence_i_q    <= 1'b0;
             ex_mul_div_q    <= 1'b0;
             ex_amo_q        <= 1'b0;
             ex_amo_op_q     <= 5'h0;
@@ -124,6 +166,14 @@ module ex_stage (
             ex_csr_rdata_q  <= 32'h0;
             ex_branch_op_q  <= 2'h0;
             ex_branch_f3_q  <= 3'h0;
+            ex_zcmp_q       <= 1'b0;
+            ex_zcmp_op_q    <= 2'b0;
+            ex_zcmp_rlist_q <= 4'b0;
+            ex_zcmp_stack_adj_q <= 10'b0;
+            ex_zcmp_reg_count_q <= 4'b0;
+            ex_zcmt_q       <= 1'b0;
+            ex_zcmt_index_q <= 8'b0;
+            ex_zcmt_jalt_q  <= 1'b0;
         end else if (ex_flush || (ex_branch_taken && ex_valid)) begin
             ex_pc_q         <= 32'h0;
             ex_rs1_data_q   <= 32'h0;
@@ -143,6 +193,7 @@ module ex_stage (
             ex_mret_q       <= 1'b0;
             ex_illegal_q    <= 1'b0;
             ex_if_access_fault_q <= 1'b0;
+            ex_fence_i_q    <= 1'b0;
             ex_mul_div_q    <= 1'b0;
             ex_amo_q        <= 1'b0;
             ex_amo_op_q     <= 5'h0;
@@ -151,6 +202,14 @@ module ex_stage (
             ex_csr_rdata_q  <= 32'h0;
             ex_branch_op_q  <= 2'h0;
             ex_branch_f3_q  <= 3'h0;
+            ex_zcmp_q       <= 1'b0;
+            ex_zcmp_op_q    <= 2'b0;
+            ex_zcmp_rlist_q <= 4'b0;
+            ex_zcmp_stack_adj_q <= 10'b0;
+            ex_zcmp_reg_count_q <= 4'b0;
+            ex_zcmt_q       <= 1'b0;
+            ex_zcmt_index_q <= 8'b0;
+            ex_zcmt_jalt_q  <= 1'b0;
         end else if (ex_stall_i) begin
         end else begin
             ex_pc_q         <= id_pc;
@@ -171,6 +230,7 @@ module ex_stage (
             ex_mret_q       <= id_mret;
             ex_illegal_q    <= id_illegal;
             ex_if_access_fault_q <= id_if_access_fault;
+            ex_fence_i_q    <= id_fence_i;
             ex_mul_div_q    <= id_mul_div;
             ex_amo_q        <= id_amo;
             ex_amo_op_q     <= id_amo_op;
@@ -179,6 +239,14 @@ module ex_stage (
             ex_csr_rdata_q  <= id_csr_rdata;
             ex_branch_op_q  <= id_branch_op;
             ex_branch_f3_q  <= id_branch_f3;
+            ex_zcmp_q       <= id_zcmp;
+            ex_zcmp_op_q    <= id_zcmp_op;
+            ex_zcmp_rlist_q <= id_zcmp_rlist;
+            ex_zcmp_stack_adj_q <= id_zcmp_stack_adj;
+            ex_zcmp_reg_count_q <= id_zcmp_reg_count;
+            ex_zcmt_q       <= id_zcmt;
+            ex_zcmt_index_q <= id_zcmt_index;
+            ex_zcmt_jalt_q  <= id_zcmt_jalt;
         end
     end
 
@@ -282,6 +350,296 @@ module ex_stage (
     end
 
     // ================================================================
+    //  Zcmp state machine (multi-cycle push/pop)
+    // ================================================================
+    typedef enum logic [2:0] {
+        ZC_IDLE = 3'd0,
+        ZC_STORE = 3'd1,    // push: one register store per cycle
+        ZC_LOAD = 3'd2,     // pop: issue register load
+        ZC_LOAD_WAIT = 3'd3, // pop: wait for load to clear MEM
+        ZC_UPD_SP = 3'd4,   // update SP after all regs processed
+        ZC_UPD_WAIT = 3'd5, // wait for MEM to capture SP update
+        ZC_RET = 3'd6       // popret/popretz: return handling
+    } zc_state_t;
+    zc_state_t zc_state, zc_state_next;
+    logic [3:0] zc_cnt, zc_cnt_next;
+    logic       zcmp_stall, zcmp_done, zcmp_done_q;
+
+    // Register number for current counter index
+    // Zcmp saved register list (highest number first):
+    //  rlist=4 (5 regs): s3,s2,s1,s0,ra
+    //  rlist=5 (6 regs): s4,s3,s2,s1,s0,ra
+    //  rlist=6 (7 regs): s5,s4,s3,s2,s1,s0,ra
+    //  rlist=7 (13 regs): s11..s2,s1,s0,ra
+    // Reg mapping: s0=x8, s1=x9, s2=x18, s3=x19, ..., s11=x27
+    // Formula:  for cnt = reg_count-3 → s1 (x9)
+    //           for cnt = reg_count-2 → s0 (x8)
+    //           for cnt = reg_count-1 → ra (x1)
+    //           else → 5'd14 + reg_count - cnt  (s2...s11 range x18..x27)
+    logic [4:0] zc_curr_reg;
+    always_comb begin
+        if (zc_cnt == ex_zcmp_reg_count_q - 4'd3)
+            zc_curr_reg = 5'd9;  // s1
+        else if (zc_cnt == ex_zcmp_reg_count_q - 4'd2)
+            zc_curr_reg = 5'd8;  // s0
+        else if (zc_cnt == ex_zcmp_reg_count_q - 4'd1)
+            zc_curr_reg = 5'd1;  // ra
+        else
+            zc_curr_reg = 5'd14 + ex_zcmp_reg_count_q - zc_cnt;
+    end
+
+    // Store/load address for current counter index
+    logic [31:0] zc_base_addr;
+    assign zc_base_addr = (ex_zcmp_op_q == 2'b00)   // push
+                        ? ex_rs1_data_q               // SP
+                        : ex_rs1_data_q + {24'b0, ex_zcmp_stack_adj_q}; // SP + stack_adj
+
+    logic [31:0] zc_mem_addr;
+    assign zc_mem_addr = zc_base_addr - 32'd4 - {28'b0, zc_cnt, 2'b00};
+
+    // Zcmp state machine (combinational next-state)
+    always_comb begin
+        zc_state_next = zc_state;
+        zc_cnt_next   = zc_cnt;
+        zcmp_stall    = 1'b0;
+        zcmp_done     = 1'b0;
+
+        unique case (zc_state)
+            ZC_IDLE: begin
+                if (ex_zcmp_q && ex_valid_q && !zcmp_done_q) begin
+                    zcmp_stall = 1'b1;
+                    if (ex_zcmp_op_q == 2'b00) begin       // push
+                        zc_state_next = ZC_STORE;
+                    end else begin                          // pop/popret/popretz
+                        zc_state_next = ZC_LOAD;
+                    end
+                    zc_cnt_next = 4'd0;
+                end
+            end
+
+            ZC_STORE: begin
+                // Push: store one register per cycle
+                // ex_out_stall_i is always 0 for Zcmp, so EX_OUT captures every cycle
+                zcmp_stall = 1'b1;
+                if (zc_cnt == ex_zcmp_reg_count_q - 4'd1) begin
+                    zc_state_next = ZC_UPD_SP;
+                end else begin
+                    zc_cnt_next = zc_cnt + 4'd1;
+                end
+            end
+
+            ZC_LOAD: begin
+                // Pop: issue load for current register
+                zcmp_stall = 1'b1;
+                zc_state_next = ZC_LOAD_WAIT;
+            end
+
+            ZC_LOAD_WAIT: begin
+                // Wait for MEM to consume the load before issuing next
+                zcmp_stall = 1'b1;
+                if (!ex_out_stall_i) begin
+                    if (zc_cnt == ex_zcmp_reg_count_q - 4'd1) begin
+                        zc_state_next = ZC_UPD_SP;
+                    end else begin
+                        zc_cnt_next = zc_cnt + 4'd1;
+                        zc_state_next = ZC_LOAD;
+                    end
+                end
+            end
+
+            ZC_UPD_SP: begin
+                // Write SP update to EX_OUT, then wait one cycle for MEM capture
+                zcmp_stall = 1'b1;
+                zc_state_next = ZC_UPD_WAIT;
+            end
+
+            ZC_UPD_WAIT: begin
+                // Hold stall while MEM captures SP_update from EX_OUT
+                zcmp_stall = 1'b1;
+                if (!ex_out_stall_i) begin
+                    if (ex_zcmp_op_q inside {2'b10, 2'b11}) // popret/popretz
+                        zc_state_next = ZC_RET;
+                    else begin
+                        zc_state_next = ZC_IDLE;
+                        zcmp_done = 1'b1;
+                    end
+                end
+            end
+
+            ZC_RET: begin
+                // Return (and optionally zero a0 for popretz)
+                zc_state_next = ZC_IDLE;
+                zcmp_done = 1'b1;
+            end
+
+            default: begin
+                zc_state_next = ZC_IDLE;
+                zcmp_done = 1'b1;
+            end
+        endcase
+    end
+
+    // zcmp_done_q: stays high after completion until pipeline actually advances
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n)
+            zcmp_done_q <= 1'b0;
+        else if (zcmp_done)
+            zcmp_done_q <= 1'b1;
+        else if (!ex_stall)
+            zcmp_done_q <= 1'b0;
+    end
+
+    // Zcmp registered state (advances independently of pipeline stall)
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            zc_state <= ZC_IDLE;
+            zc_cnt   <= 4'd0;
+        end else if (ex_flush || (ex_branch_taken && ex_valid)) begin
+            zc_state <= ZC_IDLE;
+            zc_cnt   <= 4'd0;
+        end else begin
+            zc_state <= zc_state_next;
+            zc_cnt   <= zc_cnt_next;
+        end
+    end
+
+    // Zcmp control signals (combinational, override ex_* for state machine)
+    logic zc_alu_result, zc_rd_we, zc_mem_write, zc_mem_read, zc_valid;
+    logic [4:0] zc_rd_addr;
+    always_comb begin
+        zc_rd_addr   = 5'h0;
+        zc_rd_we     = 1'b0;
+        zc_mem_write = 1'b0;
+        zc_mem_read  = 1'b0;
+        zc_valid     = 1'b0;
+        ex_zc_rs_addr    = 5'h0;
+        ex_zc_rs_addr_en = 1'b0;
+
+        unique case (zc_state)
+            ZC_IDLE: ;
+            ZC_STORE: begin
+                // Push: store current register
+                ex_zc_rs_addr    = zc_curr_reg;
+                ex_zc_rs_addr_en = 1'b1;
+                zc_mem_write     = 1'b1;
+                zc_valid         = 1'b1;
+            end
+            ZC_LOAD: begin
+                // Pop: load current register
+                zc_rd_addr = zc_curr_reg;
+                zc_rd_we   = 1'b1;
+                zc_mem_read = 1'b1;
+                zc_valid    = 1'b1;
+            end
+            ZC_LOAD_WAIT: ;
+            ZC_UPD_SP: begin
+                // Update SP: SP = SP +/- stack_adj
+                zc_rd_addr = 5'd2; // SP
+                zc_rd_we   = 1'b1;
+                zc_valid   = 1'b1;
+            end
+            ZC_UPD_WAIT: begin
+                // Hold: no new control signals needed
+            end
+            ZC_RET: begin
+                // Read x1 (ra) for return branch
+                ex_zc_rs_addr    = 5'd1;  // ra
+                ex_zc_rs_addr_en = 1'b1;
+                if (ex_zcmp_op_q == 2'b10) begin // popretz: zero a0
+                    zc_rd_addr = 5'd10; // a0
+                    zc_rd_we   = 1'b1;
+                end
+                zc_valid = 1'b1;
+            end
+        endcase
+    end
+
+    // ================================================================
+    //  Zcmt state machine (table jump via IF BRAM port)
+    // ================================================================
+    typedef enum logic [2:0] {
+        ZCMT_IDLE  = 3'd0,
+        ZCMT_SEND  = 3'd1,   // send table address to BRAM
+        ZCMT_WAIT0 = 3'd2,   // BRAM latency cycle 1
+        ZCMT_WAIT1 = 3'd3,   // BRAM latency cycle 2 (data ready at posedge)
+        ZCMT_BRANCH = 3'd4   // execute branch
+    } zcmt_state_t;
+    zcmt_state_t zcmt_state, zcmt_state_next;
+    logic        zcmt_stall, zcmt_done;
+    logic [31:0] zcmt_jvt_base;
+
+    assign zcmt_jvt_base = ex_csr_rdata_q;
+
+    // Zcmt table read address
+    logic [31:0] zcmt_read_addr;
+    assign zcmt_read_addr = (zcmt_jvt_base & 32'hFFFFFFC0) + {24'b0, ex_zcmt_index_q, 2'b00};
+
+    // Zcmt state machine
+    always_comb begin
+        zcmt_state_next = zcmt_state;
+        zcmt_stall      = 1'b0;
+        zcmt_done       = 1'b0;
+
+        unique case (zcmt_state)
+            ZCMT_IDLE: begin
+                if (ex_zcmt_q && ex_valid_q) begin
+                    zcmt_stall = 1'b1;
+                    zcmt_state_next = ZCMT_SEND;
+                end
+            end
+            ZCMT_SEND: begin
+                zcmt_stall = 1'b1;
+                zcmt_state_next = ZCMT_WAIT0;
+            end
+            ZCMT_WAIT0: begin
+                zcmt_stall = 1'b1;
+                zcmt_state_next = ZCMT_WAIT1;
+            end
+            ZCMT_WAIT1: begin
+                zcmt_stall = 1'b1;
+                // Data should be ready at posedge
+                zcmt_state_next = ZCMT_BRANCH;
+            end
+            ZCMT_BRANCH: begin
+                zcmt_state_next = ZCMT_IDLE;
+                zcmt_done = 1'b1;
+            end
+            default: begin
+                zcmt_state_next = ZCMT_IDLE;
+                zcmt_done = 1'b1;
+            end
+        endcase
+    end
+
+    // Zcmt registered state (advances independently of pipeline stall)
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            zcmt_state <= ZCMT_IDLE;
+        end else if (ex_flush || (ex_branch_taken && ex_valid)) begin
+            zcmt_state <= ZCMT_IDLE;
+        end else begin
+            zcmt_state <= zcmt_state_next;
+        end
+    end
+
+    // Zcmt control signals (combinational)
+    wire        zcmt_sending  = (zcmt_state == ZCMT_SEND);
+    wire        zcmt_branching = (zcmt_state == ZCMT_BRANCH);
+    wire        zcmt_waiting  = (zcmt_state inside {ZCMT_WAIT0, ZCMT_WAIT1});
+
+    // ex_zc_out_stall: hold EX_OUT during Zcmt wait
+    assign ex_zc_out_stall = zcmt_waiting;
+
+    // Zcmt address output to IF BRAM port
+    assign ex_zcmt_addr     = zcmt_read_addr;
+    assign ex_zcmt_addr_en  = zcmt_sending || zcmt_waiting;
+
+    // ================================================================
+    //  Stall / done override for Zcmp + Zcmt
+    // ================================================================
+    wire zcmp_or_zcmt_active = (zc_state != ZC_IDLE) || (zcmt_state != ZCMT_IDLE) || ex_zcmp_q || ex_zcmt_q;
+
+    // ================================================================
     //  Result selector (combinational)
     // ================================================================
     logic [31:0] alu_or_div_result;
@@ -373,20 +731,10 @@ module ex_stage (
         end else if (ex_out_stall_i) begin
             // Hold during AMO multi-cycle operation
         end else begin
-            // Normal capture — also reached when THIS instruction is a
-            // taken branch/jump, so its own link-register write (rd_we)
-            // and ALU result (e.g. PC+4) proceed to MEM/WB.
+            // Normal capture with Zcmp/Zcmt overrides
             ex_out_pc_q          <= ex_pc_q;
-            ex_out_alu_result_q  <= (ex_csr_op_q != 3'h0) ? ex_csr_rdata_q : alu_or_div_result;
             ex_out_rs1_q         <= ex_rs1_data_q;
-            ex_out_rs2_q         <= ex_rs2_data_q;
             ex_out_imm_q         <= ex_imm_q;
-            ex_out_rd_addr_q     <= ex_rd_addr_q;
-            ex_out_rd_we_q       <= ex_rd_we_q;
-            ex_out_mem_read_q    <= ex_mem_read_q;
-            ex_out_mem_write_q   <= ex_mem_write_q;
-            ex_out_mem_type_q    <= ex_mem_type_q;
-            ex_out_valid_q       <= ex_valid_q && !(is_div_rem && div_busy) && !(is_mul && mul_busy);
             ex_out_ebreak_q      <= ex_ebreak_q;
             ex_out_ecall_q       <= ex_ecall_q;
             ex_out_mret_q        <= ex_mret_q;
@@ -399,6 +747,109 @@ module ex_stage (
             ex_out_branch_f3_q   <= ex_branch_f3_q;
             ex_out_amo_q        <= ex_amo_q;
             ex_out_amo_op_q     <= ex_amo_op_q;
+
+            // Zcmp overrides
+            if (zc_state == ZC_STORE) begin
+                ex_out_alu_result_q  <= zc_mem_addr;
+                ex_out_rs2_q         <= zc_rs_data;
+                ex_out_rd_addr_q     <= 5'h0;
+                ex_out_rd_we_q       <= 1'b0;
+                ex_out_mem_read_q    <= 1'b0;
+                ex_out_mem_write_q   <= 1'b1;
+                ex_out_mem_type_q    <= 3'b010;  // word
+                ex_out_valid_q       <= zc_valid;
+            end else if (zc_state == ZC_LOAD) begin
+                ex_out_alu_result_q  <= zc_mem_addr;
+                ex_out_rd_addr_q     <= zc_rd_addr;
+                ex_out_rd_we_q       <= 1'b1;
+                ex_out_mem_read_q    <= 1'b1;
+                ex_out_mem_write_q   <= 1'b0;
+                ex_out_mem_type_q    <= 3'b010;  // word
+                ex_out_valid_q       <= zc_valid;
+                ex_out_rs2_q         <= ex_rs2_data_q;
+            end else if (zc_state == ZC_UPD_SP) begin
+                if (ex_zcmp_op_q == 2'b00)  // push
+                    ex_out_alu_result_q <= ex_rs1_data_q - {24'b0, ex_zcmp_stack_adj_q};
+                else                        // pop
+                    ex_out_alu_result_q <= ex_rs1_data_q + {24'b0, ex_zcmp_stack_adj_q};
+                ex_out_rd_addr_q     <= 5'd2;  // SP
+                ex_out_rd_we_q       <= 1'b1;
+                ex_out_mem_read_q    <= 1'b0;
+                ex_out_mem_write_q   <= 1'b0;
+                ex_out_mem_type_q    <= 3'b0;
+                ex_out_valid_q       <= zc_valid;
+                ex_out_rs2_q         <= ex_rs2_data_q;
+            end else if (zc_state == ZC_UPD_WAIT) begin
+                // Hold EX_OUT values while MEM captures SP update
+                ex_out_valid_q <= 1'b0;
+            end else if (zc_state == ZC_RET) begin
+                if (ex_zcmp_op_q == 2'b10) begin // popretz: zero a0
+                    ex_out_alu_result_q <= 32'h0;
+                    ex_out_rd_addr_q     <= 5'd10;  // a0
+                    ex_out_rd_we_q       <= 1'b1;
+                end else begin
+                    ex_out_alu_result_q <= 32'h0;
+                    ex_out_rd_addr_q     <= 5'h0;
+                    ex_out_rd_we_q       <= 1'b0;
+                end
+                ex_out_mem_read_q    <= 1'b0;
+                ex_out_mem_write_q   <= 1'b0;
+                ex_out_mem_type_q    <= 3'b0;
+                ex_out_valid_q       <= 1'b1;
+                ex_out_rs2_q         <= ex_rs2_data_q;
+                ex_out_rs1_q         <= zc_rs_data;  // x1 value for return
+                ex_out_branch_op_q   <= 2'b11;       // JALR-like
+                ex_out_imm_q         <= 32'h0;
+            end else if (zc_state == ZC_IDLE && zcmp_done_q) begin
+                // Suppress spurious EX_OUT capture on the completion cycle
+                ex_out_alu_result_q <= 32'h0;
+                ex_out_rd_addr_q     <= 5'h0;
+                ex_out_rd_we_q       <= 1'b0;
+                ex_out_mem_read_q    <= 1'b0;
+                ex_out_mem_write_q   <= 1'b0;
+                ex_out_mem_type_q    <= 3'b0;
+                ex_out_valid_q       <= 1'b0;
+                ex_out_rs2_q         <= ex_rs2_data_q;
+            end else if (zcmt_branching) begin
+                // Zcmt table jump
+                if (ex_zcmt_jalt_q) begin
+                    ex_out_alu_result_q <= ex_pc_q + 32'd2;    // link: PC+2
+                    ex_out_rd_addr_q     <= 5'd1;               // ra
+                    ex_out_rd_we_q       <= 1'b1;
+                end else begin
+                    ex_out_alu_result_q <= 32'h0;
+                    ex_out_rd_addr_q     <= 5'h0;
+                    ex_out_rd_we_q       <= 1'b0;
+                end
+                ex_out_mem_read_q    <= 1'b0;
+                ex_out_mem_write_q   <= 1'b0;
+                ex_out_mem_type_q    <= 3'b0;
+                ex_out_valid_q       <= 1'b1;
+                ex_out_rs2_q         <= ex_rs2_data_q;
+                ex_out_rs1_q         <= zcmt_table_data; // table entry → target
+                ex_out_branch_op_q   <= 2'b11;            // JALR-like
+                ex_out_imm_q         <= 32'h0;
+            end else if (zcmt_sending) begin
+                // Zcmt: sends address via ex_zcmt_addr (IF BRAM port), not MEM
+                ex_out_alu_result_q  <= ex_pc_q;
+                ex_out_rd_addr_q     <= 5'h0;
+                ex_out_rd_we_q       <= 1'b0;
+                ex_out_mem_read_q    <= 1'b0;
+                ex_out_mem_write_q   <= 1'b0;
+                ex_out_mem_type_q    <= 3'b0;
+                ex_out_valid_q       <= 1'b1;
+                ex_out_rs2_q         <= ex_rs2_data_q;
+            end else begin
+                ex_out_alu_result_q  <= (ex_csr_op_q != 3'h0) ? ex_csr_rdata_q : alu_or_div_result;
+                ex_out_rs2_q         <= ex_rs2_data_q;
+                ex_out_rd_addr_q     <= ex_rd_addr_q;
+                ex_out_rd_we_q       <= ex_rd_we_q;
+                ex_out_mem_read_q    <= ex_mem_read_q;
+                ex_out_mem_write_q   <= ex_mem_write_q;
+                ex_out_mem_type_q    <= ex_mem_type_q;
+                ex_out_valid_q <= ex_valid_q && !((is_div_rem || is_mul) && !ex_done)
+                                && !(zcmp_stall && !(|{zc_state == ZC_STORE, zc_state == ZC_LOAD, zc_state == ZC_UPD_SP, zc_state == ZC_RET}));
+            end
         end
     end
 
@@ -424,6 +875,7 @@ module ex_stage (
     assign ex_mret      = ex_out_mret_q;
     assign ex_illegal   = ex_out_illegal_q;
     assign ex_if_access_fault = ex_out_if_access_fault_q;
+    assign ex_fence_i    = ex_fence_i_q && ex_valid_q;
     assign ex_csr_addr  = ex_out_csr_addr_q;
     assign ex_csr_op    = ex_out_csr_op_q;
     assign ex_csr_rdata = ex_out_csr_rdata_q;
@@ -431,9 +883,13 @@ module ex_stage (
     // ================================================================
     //  Stall / done
     // ================================================================
-    assign ex_stall = (is_div_rem && (div_start || div_busy || stall_extra)) || (is_mul && (mul_start || mul_busy || mul_stall_extra));
+    assign ex_stall = ((is_div_rem || is_mul) && !ex_done)
+                    || zcmp_stall
+                    || zcmt_stall;
     assign ex_done  = is_mul    ? (mul_stall_extra && !mul_busy)
                     : is_div_rem ? (stall_extra && !div_busy)
+                    : zcmp_done ? 1'b1
+                    : zcmt_done ? 1'b1
                     : ex_valid_q;
 
     // ================================================================
@@ -508,6 +964,6 @@ module ex_stage (
     assign ex_fwd_rd_we    = ex_rd_we_q;
     assign ex_fwd_mem_read = ex_mem_read_q;
     assign ex_fwd_valid    = ex_valid_q;
-    assign ex_alu_fwd      = alu_result;
+    assign ex_alu_fwd      = (ex_csr_op_q != 3'h0) ? ex_csr_rdata_q : alu_or_div_result;
 
 endmodule

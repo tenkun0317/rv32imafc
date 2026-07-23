@@ -1,7 +1,7 @@
 import sys, os, subprocess, re, random, ctypes
 
-SRC_DIR = r'D:\Desktop\programs\vivado\rv32imafc\rv32imafc.src\sources_1'
-PROJ_DIR = r'D:\Desktop\programs\vivado\rv32imafc'
+SRC_DIR = r'D:\Desktop\programs\vivado\rv32imac\rv32imac.src\sources_1'
+PROJ_DIR = r'D:\Desktop\programs\vivado\rv32imac'
 
 def sv_files():
     return [os.path.join(SRC_DIR, f) for f in

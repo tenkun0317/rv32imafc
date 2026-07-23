@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import sys
-sys.path.insert(0, r'D:\Desktop\programs\vivado\rv32imafc')
+sys.path.insert(0, r'D:\Desktop\programs\vivado\rv32imac')
 from run_arch_test import *
 
 print("Recompiling design...")
